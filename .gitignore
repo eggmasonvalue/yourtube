@@ -1,0 +1,5 @@
+# Captured traffic from a logged-in session — never commit.
+scratch/
+# Local agent state.
+.pi/
+node_modules/
