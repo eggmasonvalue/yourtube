@@ -20,10 +20,11 @@ Everything else is presentation: feed cards are read from YouTube's own renderer
 
 ### Features
 
-- Text-only rows for Home, Subscriptions, Watch Later and playlists, with resume progress
+- Text-only rows for Home, Subscriptions, Watch Later and playlists, with resume progress; Mixes and playlist cards become rows too
+- No flash of YouTube's own cards: they stay hidden until their text row is ready
 - ✦ **Ask Gemini** sheet: auto-summary, follow-up chips, free-text questions
 - Timestamps in answers are pills that open the video **at that moment** in the YouTube app
-- Title tap / **Watch on YouTube** opens the official app (keeps Premium features like Jump Ahead)
+- Title tap / **Watch on YouTube** opens the official app (keeps Premium features like Jump Ahead) — videos, Mixes and playlists alike, also from the installed web app (via the app's `vnd.youtube:` scheme)
 - ⋮ opens YouTube's own menu for the video (save to Watch Later, etc.)
 - Google Sans Flex throughout; follows YouTube's light/dark theme
 - Installable as a standalone web app (the script supplies the missing web-app manifest)

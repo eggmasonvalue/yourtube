@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.3
+// @version      0.3.4
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -60,9 +60,10 @@
   };
   const isDuration = s => /^(\d+:)?\d{1,2}:\d{2}$/.test(s);
   const seconds = ts => ts.split(':').reduce((acc, n) => acc * 60 + +n, 0);
-  // vnd.youtube: is the YouTube app's own scheme. Unlike intent:// URLs, installed web apps (PWA) allow it.
-  const openInApp = (id, t = 0) => {
-    location.href = `vnd.youtube:${id}${t ? `?t=${t}` : ''}`;
+  // vnd.youtube: is the YouTube app's own scheme. Unlike intent:// URLs, installed web apps (PWA) allow it,
+  // and the app accepts any youtube.com path after it: videos (&t=), mixes (&list=), playlist pages.
+  const openInApp = path => {
+    location.href = `vnd.youtube://www.youtube.com${path}`;
   };
 
   // Innertube: same-origin calls with the signed-in session.
@@ -88,14 +89,22 @@
   };
 
   // ── Feed cards → text rows ──────────────────────────────────────────────────
-  // Each adapter maps a card's renderer data to { id, title, parts[], length }.
+  // Each adapter maps a card's renderer data to { id, title, parts[], length, url?, playlist? }.
   const adapters = {
-    'YT-LOCKUP-VIEW-MODEL': d => d.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO' && {
-      id: d.contentId,
-      title: text(d.metadata?.lockupMetadataViewModel?.title),
-      parts: findAll(d.metadata, o => Array.isArray(o.metadataParts))
-        .flatMap(r => r.metadataParts.map(p => text(p.text))),
-      length: findAll(d.contentImage, o => isDuration(text(o.text))).map(o => text(o.text))[0],
+    'YT-LOCKUP-VIEW-MODEL': d => {
+      const playlist = d.contentType === 'LOCKUP_CONTENT_TYPE_PLAYLIST';
+      if (!playlist && d.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') return null;
+      const badges = findAll(d.contentImage, o => o.thumbnailBadgeViewModel).map(o => text(o.thumbnailBadgeViewModel.text));
+      return {
+        id: d.contentId,
+        playlist,
+        title: text(d.metadata?.lockupMetadataViewModel?.title),
+        parts: findAll(d.metadata, o => Array.isArray(o.metadataParts))
+          .flatMap(r => r.metadataParts.map(p => text(p.text))),
+        length: playlist ? badges[0] : badges.find(isDuration), // "Mix" / "25 videos" for playlists
+        url: playlist && (d.rendererContext?.commandContext?.onTap?.innertubeCommand?.commandMetadata?.webCommandMetadata?.url
+          ?? `/playlist?list=${d.contentId}`),
+      };
     },
     'YTM-VIDEO-WITH-CONTEXT-RENDERER': d => ({
       id: d.videoId,
@@ -118,21 +127,24 @@
     return p ? (p.percentDurationWatched ?? p.startPercent) : 0;
   };
 
-  const toVideo = el => {
+  const toItem = el => {
     const v = adapters[el.tagName]?.(el.data);
     if (!v?.id || !v.title) return null;
     const [channel, ...rest] = v.parts.filter(Boolean);
-    return { ...v, channel, meta: [v.length, ...rest].filter(Boolean), progress: progressOf(el.data) };
+    return {
+      ...v, channel, url: v.url || `/watch?v=${v.id}`,
+      meta: [v.length, ...rest].filter(Boolean), progress: progressOf(el.data),
+    };
   };
 
   const row = (el, v) => h('div', { class: 'yt-row', 'data-id': v.id },
-    h('div', { class: 'yt-main', onclick: () => openInApp(v.id) },
+    h('div', { class: 'yt-main', onclick: () => openInApp(v.url) },
       h('div', { class: 'yt-title' }, v.title),
       h('div', { class: 'yt-meta' },
         h('span', { class: 'yt-channel' }, v.channel ?? ''),
         ...v.meta.map(m => h('span', {}, m)),
         v.progress > 0 && h('span', { class: 'yt-progress' }, `watched ${Math.round(v.progress)}%`))),
-    h('button', { class: 'yt-ask', 'aria-label': 'Ask Gemini', onclick: () => ask.open(v) }, icon(ICONS.spark, 'yt-gemini')),
+    !v.playlist && h('button', { class: 'yt-ask', 'aria-label': 'Ask Gemini', onclick: () => ask.open(v) }, icon(ICONS.spark, 'yt-gemini')),
     h('button', {
       class: 'yt-more', 'aria-label': 'More actions',
       onclick: () => el.querySelector('button[aria-label*="ction"], button[aria-label*="More"]')?.click(),
@@ -140,7 +152,7 @@
 
   // Cards render hidden (see CSS) until they become a row; non-video cards are marked native and shown as-is.
   const transform = el => {
-    const v = toVideo(el);
+    const v = toItem(el);
     const current = el.querySelector(':scope > .yt-row');
     el.classList.toggle('yt-native', !v);
     el.classList.toggle('yt-x', !!v);
@@ -166,7 +178,7 @@
           let last = 0;
           for (const m of part.matchAll(TS_RE)) {
             out.push(part.slice(last, m.index).replace(/\s+$/, ' '),
-              h('a', { class: 'yt-ts', onclick: () => openInApp(id, seconds(m[1])) }, icon(ICONS.play), m[2] ? `${m[1]}–${m[2]}` : m[1]));
+              h('a', { class: 'yt-ts', onclick: () => openInApp(`/watch?v=${id}&t=${seconds(m[1])}`) }, icon(ICONS.play), m[2] ? `${m[1]}–${m[2]}` : m[1]));
             last = m.index + m[0].length;
           }
           out.push(part.slice(last));
@@ -285,7 +297,7 @@
               h('div', { class: 'yt-sheet-video' }, v.title),
               h('div', { class: 'yt-meta' }, [v.channel, ...v.meta].filter(Boolean).join(' · '))),
             h('button', { class: 'yt-icon-btn', 'aria-label': 'Close', onclick: close }, icon(ICONS.close))),
-          h('button', { class: 'yt-watch', onclick: () => openInApp(v.id) }, icon(ICONS.play), 'Watch on YouTube'),
+          h('button', { class: 'yt-watch', onclick: () => openInApp(v.url) }, icon(ICONS.play), 'Watch on YouTube'),
           body = h('div', { class: 'yt-sheet-body' }),
           chipsBox = h('div', { class: 'yt-chips' }),
           h('form', { class: 'yt-composer', onsubmit: submit },
