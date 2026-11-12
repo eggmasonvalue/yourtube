@@ -1,16 +1,17 @@
 // Tiny CDP client: evaluate JS in the phone's Vivaldi tab.
-// usage: node tools/cdp.mjs [--url-match m.youtube.com] [--file x.js | 'expr']
+// usage: node tools/cdp.mjs [--url-match m.youtube.com | --target <id>] [--file x.js | 'expr']
 const PORT = process.env.CDP_PORT ?? 9333;
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i < 0 ? d : args.splice(i, 2)[1]; };
 const match = opt('--url-match', 'youtube.com');
+const target = opt('--target'); // exact target id from /json/list, when several tabs match
 const file = opt('--file');
 const method = opt('--method'); // raw CDP call, e.g. --method Page.getInstallabilityErrors '{}'
 const expr = file ? (await import('node:fs')).readFileSync(file, 'utf8') : args.join(' ');
 
 const targets = await (await fetch(`http://localhost:${PORT}/json/list`)).json();
-const t = targets.find(t => t.type === 'page' && t.url.includes(match));
-if (!t) throw new Error(`no tab matching ${match}: ${targets.map(t => t.url)}`);
+const t = targets.find(t => target ? t.id === target : t.type === 'page' && t.url.includes(match));
+if (!t) throw new Error(`no tab matching ${target ?? match}: ${targets.map(t => `${t.id} ${t.url}`)}`);
 
 const ws = new WebSocket(t.webSocketDebuggerUrl);
 let id = 0;

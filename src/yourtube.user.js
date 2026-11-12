@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.1
+// @version      0.3.2
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -60,8 +60,9 @@
   };
   const isDuration = s => /^(\d+:)?\d{1,2}:\d{2}$/.test(s);
   const seconds = ts => ts.split(':').reduce((acc, n) => acc * 60 + +n, 0);
+  // vnd.youtube: is the YouTube app's own scheme. Unlike intent:// URLs, installed web apps (PWA) allow it.
   const openInApp = (id, t = 0) => {
-    location.href = `intent://www.youtube.com/watch?v=${id}${t ? `&t=${t}` : ''}#Intent;scheme=https;package=com.google.android.youtube;end`;
+    location.href = `vnd.youtube:${id}${t ? `?t=${t}` : ''}`;
   };
 
   // Innertube: same-origin calls with the signed-in session.
