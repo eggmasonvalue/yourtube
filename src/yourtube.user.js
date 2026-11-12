@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.2
+// @version      0.3.3
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -138,13 +138,15 @@
       onclick: () => el.querySelector('button[aria-label*="ction"], button[aria-label*="More"]')?.click(),
     }, icon(ICONS.more)));
 
+  // Cards render hidden (see CSS) until they become a row; non-video cards are marked native and shown as-is.
   const transform = el => {
     const v = toVideo(el);
     const current = el.querySelector(':scope > .yt-row');
-    if (!v || current?.dataset.id === v.id) return;
+    el.classList.toggle('yt-native', !v);
+    el.classList.toggle('yt-x', !!v);
+    if (current?.dataset.id === v?.id) return;
     current?.remove();
-    el.classList.add('yt-x');
-    el.append(row(el, v));
+    if (v) el.append(row(el, v));
   };
 
   // ── Ask sheet: YouTube's own Gemini "Ask about this video", fetched off-page ─
@@ -369,7 +371,8 @@
 
     /* text rows */
     .yt-x { margin:0 !important; padding:0 !important; }
-    .yt-x > :not(.yt-row) { display:none !important; }
+    /* Hide YouTube's own card from the first frame, so it never flashes before its row is built. */
+    :is(${CARD_SEL}):not(.yt-native) > :not(.yt-row) { display:none !important; }
     ytm-rich-item-renderer:has(.yt-x) { margin:0 !important; padding:0 !important; }
     .yt-row { display:flex; gap:4px; align-items:center; padding:14px 8px 14px 16px;
       border-bottom:1px solid var(--yt-line); color:var(--yt-fg); font:14px/1.4 var(--yt-font); }
@@ -460,7 +463,7 @@
     queued = false;
     let waiting = false;
     for (const el of document.querySelectorAll(CARD_SEL)) el.data ? transform(el) : (waiting = true);
-    if (waiting) setTimeout(schedule, 300); // YouTube may attach .data after inserting the node
+    if (waiting) setTimeout(schedule, 100); // YouTube may attach .data after inserting the node (card stays hidden meanwhile)
   };
   const observer = new MutationObserver(schedule);
   observer.observe(document.body, { childList: true, subtree: true });
@@ -477,7 +480,7 @@
       style.remove();
       defs.remove();
       document.querySelectorAll('.yt-row').forEach(r => r.remove());
-      document.querySelectorAll('.yt-x').forEach(e => e.classList.remove('yt-x'));
+      document.querySelectorAll('.yt-x, .yt-native').forEach(e => e.classList.remove('yt-x', 'yt-native'));
     },
   };
 })();
