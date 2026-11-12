@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.6
+// @version      0.3.7
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -31,15 +31,14 @@
     return el;
   };
   const SVG = 'http://www.w3.org/2000/svg';
-  const icon = (d, cls = '') => {
-    const svg = document.createElementNS(SVG, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('class', `yt-icon ${cls}`);
-    const path = document.createElementNS(SVG, 'path');
-    path.setAttribute('d', d);
-    svg.append(path);
-    return svg;
+  const svg = (tag, attrs = {}, ...kids) => {
+    const el = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    el.append(...kids);
+    return el;
   };
+  const icon = (d, cls = '') => svg('svg', { viewBox: '0 0 24 24', class: `yt-icon ${cls}` }, svg('path', { d }));
+  const GEMINI = [['0', '#4285f4'], ['.55', '#9b72cb'], ['1', '#d96570']]; // gradient stops, shared by CSS/SVG/canvas
   const ICONS = {
     spark: 'M12 1C12 7 17 12 23 12C17 12 12 17 12 23C12 17 7 12 1 12C7 12 12 7 12 1Z',
     send: 'M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a1 1 0 00-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .71.73 1.2 1.39.91z',
@@ -91,16 +90,18 @@
 
   // ── Feed cards → text rows ──────────────────────────────────────────────────
   // Each adapter maps a card's renderer data to { id, title, parts[], length, url?, playlist? }.
+  // Searches are scoped to small subtrees: the full data includes large menu/command objects.
   const adapters = {
     'YT-LOCKUP-VIEW-MODEL': d => {
       const playlist = d.contentType === 'LOCKUP_CONTENT_TYPE_PLAYLIST';
       if (!playlist && d.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') return null;
+      const meta = d.metadata?.lockupMetadataViewModel;
       const badges = findAll(d.contentImage, o => o.thumbnailBadgeViewModel).map(o => text(o.thumbnailBadgeViewModel.text));
       return {
         id: d.contentId,
         playlist,
-        title: text(d.metadata?.lockupMetadataViewModel?.title),
-        parts: findAll(d.metadata, o => Array.isArray(o.metadataParts))
+        title: text(meta?.title),
+        parts: findAll(meta?.metadata, o => Array.isArray(o.metadataParts))
           .flatMap(r => r.metadataParts.map(p => text(p.text))),
         length: playlist ? badges[0] : badges.find(isDuration), // "Mix" / "25 videos" for playlists
         url: playlist && (d.rendererContext?.commandContext?.onTap?.innertubeCommand?.commandMetadata?.webCommandMetadata?.url
@@ -123,8 +124,9 @@
   adapters['YTM-COMPACT-VIDEO-RENDERER'] = adapters['YTM-VIDEO-WITH-CONTEXT-RENDERER'];
   const CARD_SEL = Object.keys(adapters).map(t => t.toLowerCase()).join(',');
 
+  // Progress lives in the thumbnail overlays: contentImage (lockups) or thumbnailOverlays (older renderers).
   const progressOf = d => {
-    const p = findAll(d, o => typeof o.percentDurationWatched === 'number' || typeof o.startPercent === 'number')[0];
+    const p = findAll(d.contentImage ?? d.thumbnailOverlays, o => typeof o.percentDurationWatched === 'number' || typeof o.startPercent === 'number')[0];
     return p ? (p.percentDurationWatched ?? p.startPercent) : 0;
   };
 
@@ -155,14 +157,17 @@
     }, icon(ICONS.more)));
 
   // Cards render hidden (see CSS) until they become a row; non-video cards are marked native and shown as-is.
+  // Each card is processed once per data object, so rescans (every mutation/scroll frame) cost ~nothing.
+  const seen = new WeakMap(); // card element → { data it was rendered from, its row }
   const transform = el => {
+    const last = seen.get(el);
+    if (last?.data === el.data && (last.row ? last.row.parentNode === el : el.classList.contains('yt-native'))) return;
+    last?.row?.remove();
     const v = toItem(el);
-    const current = el.querySelector(':scope > .yt-row');
     el.classList.toggle('yt-native', !v);
     el.classList.toggle('yt-x', !!v);
-    if (current?.dataset.id === v?.id) return;
-    current?.remove();
-    if (v) el.append(row(el, v));
+    const r = v && el.appendChild(row(el, v));
+    seen.set(el, { data: el.data, row: r });
   };
 
   // ── Ask sheet: YouTube's own Gemini "Ask about this video", fetched off-page ─
@@ -219,7 +224,7 @@
     const composerToken = o => findAll(o, x => x.chatInputViewModel)[0]
       ?.chatInputViewModel.sendUserQueryCommand?.innertubeCommand?.continuationCommand?.token;
 
-    const send = async (continuation, label, typed) => {
+    const send = async (continuation, label, typed = false) => {
       const id = current.id, s = sessions.get(id);
       const clientMessageId = `youchat-${Date.now()}`;
       s.log.push({ role: 'user', text: label });
@@ -230,7 +235,7 @@
           continuation,
           formData: { inputComposerFormData: {
             clientMessageId, playerOffsetMs: '0',
-            ...(typed && { userInputText: typed }),
+            ...(typed && { userInputText: label }),
             ...(s.lastId && { previousClientMessageId: s.lastId }),
           } },
         });
@@ -257,7 +262,6 @@
         if (!panel) throw new Error('Ask is not available for this video');
         s.chips = chipsIn(panel);
         s.composer = composerToken(panel);
-        s.pending = false;
         const summarize = s.chips.find(c => /summar/i.test(c.label));
         if (summarize) return send(summarize.continuation, summarize.label);
       } catch (e) {
@@ -290,7 +294,7 @@
         if (!s.composer) return s.log.push({ role: 'bot', text: 'Follow-up input unavailable for this video.', error: true }), render();
         input.value = '';
         input.style.height = '';
-        send(s.composer, q, q);
+        send(s.composer, q, true);
       };
       wrap = h('div', { class: 'yt-sheet-wrap', onclick: e => e.target === wrap && close() },
         h('div', { class: 'yt-sheet' },
@@ -335,30 +339,27 @@
       g.beginPath(); g.moveTo(44 * u, 41 * u); g.lineTo(44 * u, 59 * u); g.lineTo(59 * u, 50 * u); g.closePath(); g.fill(); g.stroke();
       const spark = new Path2D(ICONS.spark), k = (16 * u) / 22;
       const grad = g.createLinearGradient(1, 1, 23, 23); // in the spark's own 24-unit space
-      grad.addColorStop(0, '#4285f4'); grad.addColorStop(0.55, '#9b72cb'); grad.addColorStop(1, '#d96570');
+      for (const [o, c] of GEMINI) grad.addColorStop(+o, c);
       g.setTransform(k, 0, 0, k, 73 * u - 12 * k, 33 * u - 12 * k);
       g.lineWidth = 5; g.stroke(spark);      // white halo separates the spark from the red
       g.fillStyle = grad;
       g.fill(spark);
       return c.toDataURL('image/png');
     };
-    {
-      const [i192, i512] = [png(192), png(512)];
-      const manifest = {
-        name: 'YourTube', short_name: 'YourTube', id: '/?yourtube',
-        start_url: `${location.origin}/feed/subscriptions`, scope: `${location.origin}/`,
-        display: 'standalone', background_color: '#ffffff', theme_color: '#ffffff',
-        icons: [
-          { src: i192, sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: i512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-        ],
-      };
-      const url = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' }));
-      document.querySelectorAll('link[rel=manifest]').forEach(l => l.remove());
-      const link = h('link', { rel: 'manifest', href: url });
-      document.head.append(link);
-      cleanups.push(() => link.remove());
-    }
+    const manifest = {
+      name: 'YourTube', short_name: 'YourTube', id: '/?yourtube',
+      start_url: `${location.origin}/feed/subscriptions`, scope: `${location.origin}/`,
+      display: 'standalone', background_color: '#ffffff', theme_color: '#ffffff',
+      icons: [
+        { src: png(192), sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: png(512), sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      ],
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' }));
+    const link = h('link', { rel: 'manifest', href: url });
+    document.querySelectorAll('link[rel=manifest]').forEach(l => l.remove());
+    document.head.append(link);
+    cleanups.push(() => { link.remove(); URL.revokeObjectURL(url); });
   };
 
   // ── Styles ──────────────────────────────────────────────────────────────────
@@ -367,7 +368,7 @@
     :root {
       --yt-font: 'Google Sans Flex', 'Google Sans', Roboto, Arial, sans-serif;
       --yt-fg:#1f1f1f; --yt-mute:#5f6368; --yt-bg:#fff; --yt-surface:#f0f4f9; --yt-line:#e3e3e3; --yt-accent:#0b57d0;
-      --yt-gemini: linear-gradient(74deg, #4285f4 0%, #9b72cb 45%, #d96570 100%);
+      --yt-gemini: linear-gradient(74deg, ${GEMINI.map(([o, c]) => `${c} ${o * 100}%`)});
     }
     html[dark] {
       --yt-fg:#e3e3e3; --yt-mute:#9aa0a6; --yt-bg:#131314; --yt-surface:#1e1f20; --yt-line:#2d2f31; --yt-accent:#a8c7fa;
@@ -442,7 +443,7 @@
     .yt-disclaimer { color:var(--yt-mute); font-size:12px; margin-top:16px; }
     .yt-shimmer { display:grid; gap:10px; margin:18px 0; }
     .yt-shimmer i { height:12px; border-radius:6px; opacity:.35;
-      background:linear-gradient(90deg, #4285f4, #9b72cb, #d96570, #4285f4) 0 0/300% 100%; animation:yt-shim 1.6s linear infinite; }
+      background:linear-gradient(90deg, ${[...GEMINI, GEMINI[0]].map(([, c]) => c)}) 0 0/300% 100%; animation:yt-shim 1.6s linear infinite; }
     @keyframes yt-shim { to { background-position:-300% 0; } }
     .yt-chips { display:flex; gap:8px; overflow-x:auto; padding:10px 16px 2px; flex:none; scrollbar-width:none; }
     .yt-chips:empty { display:none; }
@@ -460,18 +461,11 @@
   document.head.append(style);
 
   // One shared gradient definition for every spark icon.
-  const defs = document.createElementNS(SVG, 'svg');
-  defs.setAttribute('style', 'position:absolute;width:0;height:0');
-  const grad = document.createElementNS(SVG, 'linearGradient');
-  grad.id = 'yt-gemini-grad';
-  [['0', '#4285f4'], ['.55', '#9b72cb'], ['1', '#d96570']].forEach(([o, c]) => {
-    const stop = document.createElementNS(SVG, 'stop');
-    stop.setAttribute('offset', o); stop.setAttribute('stop-color', c);
-    grad.append(stop);
-  });
-  grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0'); grad.setAttribute('x2', '1'); grad.setAttribute('y2', '1');
-  defs.append(grad);
+  const defs = svg('svg', { style: 'position:absolute;width:0;height:0' },
+    svg('linearGradient', { id: 'yt-gemini-grad', x1: 0, y1: 0, x2: 1, y2: 1 },
+      ...GEMINI.map(([offset, color]) => svg('stop', { offset, 'stop-color': color }))));
   document.body.append(defs);
+  cleanups.push(() => { style.remove(); defs.remove(); });
 
   // ── Wire-up ─────────────────────────────────────────────────────────────────
   let queued = false;
@@ -485,19 +479,14 @@
   const observer = new MutationObserver(schedule);
   observer.observe(document.body, { childList: true, subtree: true });
   addEventListener('scroll', schedule, { passive: true }); // catches recycled cards whose .data changed in place
+  cleanups.push(() => {
+    observer.disconnect();
+    removeEventListener('scroll', schedule);
+    document.querySelectorAll('.yt-row').forEach(r => r.remove());
+    document.querySelectorAll('.yt-x, .yt-native').forEach(e => e.classList.remove('yt-x', 'yt-native'));
+  });
   scan();
   installable();
 
-  window.__yourtube = {
-    destroy() {
-      observer.disconnect();
-      removeEventListener('scroll', schedule);
-      cleanups.forEach(f => f());
-      ask.close();
-      style.remove();
-      defs.remove();
-      document.querySelectorAll('.yt-row').forEach(r => r.remove());
-      document.querySelectorAll('.yt-x, .yt-native').forEach(e => e.classList.remove('yt-x', 'yt-native'));
-    },
-  };
+  window.__yourtube = { destroy: () => { ask.close(); cleanups.forEach(f => f()); } };
 })();
