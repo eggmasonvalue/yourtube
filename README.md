@@ -20,7 +20,7 @@ Everything else is presentation: feed cards are read from YouTube's own renderer
 
 ### Features
 
-- Text-only rows for Home, Subscriptions, Watch Later and playlists, with resume progress; Mixes and playlist cards become rows too
+- Text-only rows for Home, Subscriptions, Watch Later and playlists, with watch progress as a thin red bar (finished videos dimmed); Mixes and playlist cards become rows too
 - No flash of YouTube's own cards: they stay hidden until their text row is ready
 - ✦ **Ask Gemini** sheet: auto-summary, follow-up chips, free-text questions
 - Timestamps in answers are pills that open the video **at that moment** in the YouTube app

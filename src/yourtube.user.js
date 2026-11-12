@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.4
+// @version      0.3.5
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -137,13 +137,16 @@
     };
   };
 
-  const row = (el, v) => h('div', { class: 'yt-row', 'data-id': v.id },
+  // Watch progress is drawn as a red bar on the row's bottom divider (CSS var --p); finished videos are dimmed.
+  const row = (el, v) => h('div', {
+    class: v.progress >= 95 ? 'yt-row yt-done' : 'yt-row', 'data-id': v.id,
+    style: v.progress > 0 && `--p:${Math.round(v.progress)}%`,
+  },
     h('div', { class: 'yt-main', onclick: () => openInApp(v.url) },
       h('div', { class: 'yt-title' }, v.title),
       h('div', { class: 'yt-meta' },
         h('span', { class: 'yt-channel' }, v.channel ?? ''),
-        ...v.meta.map(m => h('span', {}, m)),
-        v.progress > 0 && h('span', { class: 'yt-progress' }, `watched ${Math.round(v.progress)}%`))),
+        ...v.meta.map(m => h('span', {}, m)))),
     !v.playlist && h('button', { class: 'yt-ask', 'aria-label': 'Ask Gemini', onclick: () => ask.open(v) }, icon(ICONS.spark, 'yt-gemini')),
     h('button', {
       class: 'yt-more', 'aria-label': 'More actions',
@@ -387,14 +390,15 @@
     :is(${CARD_SEL}):not(.yt-native) > :not(.yt-row) { display:none !important; }
     ytm-rich-item-renderer:has(.yt-x) { margin:0 !important; padding:0 !important; }
     .yt-row { display:flex; gap:4px; align-items:center; padding:14px 8px 14px 16px;
-      border-bottom:1px solid var(--yt-line); color:var(--yt-fg); font:14px/1.4 var(--yt-font); }
+      border-bottom:1px solid var(--yt-line); color:var(--yt-fg); font:14px/1.4 var(--yt-font);
+      background:linear-gradient(#f03, #f03) left bottom / var(--p, 0%) 2px no-repeat border-box; }
+    .yt-done .yt-main { opacity:.5; }
     .yt-main { flex:1; min-width:0; }
     .yt-title { font-size:15.5px; font-weight:500; font-variation-settings:'opsz' 18; letter-spacing:-.005em;
       display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
     .yt-meta { color:var(--yt-mute); font-size:12.5px; margin-top:4px; font-stretch:95%; }
     .yt-meta span + span::before { content:' · '; }
     .yt-channel { color:var(--yt-fg); font-weight:500; opacity:.8; }
-    .yt-progress { color:var(--yt-accent); }
     .yt-row button { flex:none; border:0; background:none; color:var(--yt-mute); padding:0; display:grid; place-items:center; }
     .yt-row .yt-ask { width:44px; height:44px; border-radius:50%; background:var(--yt-surface); }
     .yt-row .yt-ask .yt-icon { width:22px; height:22px; }
