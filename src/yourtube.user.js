@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.5
+// @version      0.3.6
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -62,8 +62,9 @@
   const seconds = ts => ts.split(':').reduce((acc, n) => acc * 60 + +n, 0);
   // vnd.youtube: is the YouTube app's own scheme. Unlike intent:// URLs, installed web apps (PWA) allow it,
   // and the app accepts any youtube.com path after it: videos (&t=), mixes (&list=), playlist pages.
+  // Keep the host empty (vnd.youtube:///path): with a host, installed web apps silently drop the navigation.
   const openInApp = path => {
-    location.href = `vnd.youtube://www.youtube.com${path}`;
+    location.href = `vnd.youtube://${path}`;
   };
 
   // Innertube: same-origin calls with the signed-in session.
