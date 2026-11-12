@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.0
+// @version      0.3.1
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -305,15 +305,22 @@
 
   // ── Installable web app: YouTube ships no manifest, so we provide one ──────
   const installable = () => {
+    // YouTube-like mark (red rounded rect + white play) with a small Gemini spark, drawn in the maskable safe zone.
     const png = size => {
-      const c = h('canvas', { width: size, height: size }), g = c.getContext('2d'), s = size / 24;
-      g.fillStyle = '#0f0f0f';
+      const c = h('canvas', { width: size, height: size }), g = c.getContext('2d'), u = size / 100;
+      g.fillStyle = '#fff';
       g.fillRect(0, 0, size, size);
-      const grad = g.createLinearGradient(0, 0, size, size);
+      g.fillStyle = '#ff0033';
+      g.beginPath(); g.roundRect(22 * u, 30 * u, 56 * u, 40 * u, 11 * u); g.fill();
+      g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineJoin = 'round'; g.lineWidth = 3 * u;
+      g.beginPath(); g.moveTo(44 * u, 41 * u); g.lineTo(44 * u, 59 * u); g.lineTo(59 * u, 50 * u); g.closePath(); g.fill(); g.stroke();
+      const spark = new Path2D(ICONS.spark), k = (16 * u) / 22;
+      const grad = g.createLinearGradient(1, 1, 23, 23); // in the spark's own 24-unit space
       grad.addColorStop(0, '#4285f4'); grad.addColorStop(0.55, '#9b72cb'); grad.addColorStop(1, '#d96570');
+      g.setTransform(k, 0, 0, k, 73 * u - 12 * k, 33 * u - 12 * k);
+      g.lineWidth = 5; g.stroke(spark);      // white halo separates the spark from the red
       g.fillStyle = grad;
-      g.translate(size * 0.2, size * 0.2); g.scale(s * 0.6, s * 0.6);
-      g.fill(new Path2D(ICONS.spark));
+      g.fill(spark);
       return c.toDataURL('image/png');
     };
     {
@@ -321,7 +328,7 @@
       const manifest = {
         name: 'YourTube', short_name: 'YourTube', id: '/?yourtube',
         start_url: `${location.origin}/feed/subscriptions`, scope: `${location.origin}/`,
-        display: 'standalone', background_color: '#0f0f0f', theme_color: '#0f0f0f',
+        display: 'standalone', background_color: '#ffffff', theme_color: '#ffffff',
         icons: [
           { src: i192, sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: i512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
