@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.8
+// @version      0.3.9
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -328,10 +328,11 @@
 
   // ── Installable web app: YouTube ships no manifest, so we provide one ──────
   const installable = () => {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--yt-bg').trim(); // splash + icon tile follow the theme
     // YouTube-like mark (red rounded rect + white play) with a small Gemini spark, drawn in the maskable safe zone.
     const png = size => {
       const c = h('canvas', { width: size, height: size }), g = c.getContext('2d'), u = size / 100;
-      g.fillStyle = '#fff';
+      g.fillStyle = bg; // tile matches the splash/theme so there is no light square in dark mode
       g.fillRect(0, 0, size, size);
       g.fillStyle = '#ff0033';
       g.beginPath(); g.roundRect(22 * u, 30 * u, 56 * u, 40 * u, 11 * u); g.fill();
@@ -346,7 +347,6 @@
       g.fill(spark);
       return c.toDataURL('image/png');
     };
-    const bg = getComputedStyle(document.documentElement).getPropertyValue('--yt-bg').trim(); // splash follows the theme
     const manifest = {
       name: 'YourTube', short_name: 'YourTube', id: '/?yourtube',
       start_url: `${location.origin}/feed/subscriptions`, scope: `${location.origin}/`,
