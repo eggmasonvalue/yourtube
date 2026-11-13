@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.7
+// @version      0.3.8
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -346,10 +346,11 @@
       g.fill(spark);
       return c.toDataURL('image/png');
     };
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--yt-bg').trim(); // splash follows the theme
     const manifest = {
       name: 'YourTube', short_name: 'YourTube', id: '/?yourtube',
       start_url: `${location.origin}/feed/subscriptions`, scope: `${location.origin}/`,
-      display: 'standalone', background_color: '#ffffff', theme_color: '#ffffff',
+      display: 'standalone', background_color: bg, theme_color: bg,
       icons: [
         { src: png(192), sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: png(512), sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
@@ -370,7 +371,7 @@
       --yt-fg:#1f1f1f; --yt-mute:#5f6368; --yt-bg:#fff; --yt-surface:#f0f4f9; --yt-line:#e3e3e3; --yt-accent:#0b57d0;
       --yt-gemini: linear-gradient(74deg, ${GEMINI.map(([o, c]) => `${c} ${o * 100}%`)});
     }
-    html[dark] {
+    html:is([dark], [darker-dark-theme]) { /* m.youtube.com now uses darker-dark-theme */
       --yt-fg:#e3e3e3; --yt-mute:#9aa0a6; --yt-bg:#131314; --yt-surface:#1e1f20; --yt-line:#2d2f31; --yt-accent:#a8c7fa;
     }
     html, body, ytm-app, ytm-app * { font-family: var(--yt-font) !important; }
