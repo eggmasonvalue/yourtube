@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.9
+// @version      0.3.10
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -371,9 +371,11 @@
       --yt-fg:#1f1f1f; --yt-mute:#5f6368; --yt-bg:#fff; --yt-surface:#f0f4f9; --yt-line:#e3e3e3; --yt-accent:#0b57d0;
       --yt-gemini: linear-gradient(74deg, ${GEMINI.map(([o, c]) => `${c} ${o * 100}%`)});
     }
-    html:is([dark], [darker-dark-theme]) { /* m.youtube.com now uses darker-dark-theme */
+    /* Follow the system theme live. YouTube's html[dark] lags system changes, and [darker-dark-theme] is a
+       palette flag that stays set in light mode, so neither tells us the current theme. */
+    @media (prefers-color-scheme: dark) { :root {
       --yt-fg:#e3e3e3; --yt-mute:#9aa0a6; --yt-bg:#131314; --yt-surface:#1e1f20; --yt-line:#2d2f31; --yt-accent:#a8c7fa;
-    }
+    } }
     html, body, ytm-app, ytm-app * { font-family: var(--yt-font) !important; }
 
     /* distraction removal */
