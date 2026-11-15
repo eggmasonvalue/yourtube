@@ -1,67 +1,69 @@
 # YourTube
 
-**Triage YouTube by reading, not by thumbnail.**
+**Keep your intent between opening YouTube and pressing play.**
 
-A userscript for `m.youtube.com` that turns your Home, Subscriptions and Watch Later feeds into a calm text list — title, channel, duration, views, age, watch progress — and puts a **✦ Ask Gemini** button on every row. Tap it to read a Gemini summary of the video and ask follow-ups *before* deciding whether it is worth your time. Tap the title to watch it in the official YouTube app.
+You open YouTube for something specific; seconds later the thumbnails and the algorithm have chosen for you. YourTube is a userscript for `m.youtube.com` that turns your feeds into a calm, text-only list you triage by *reading*, with YouTube's own Gemini **Ask** one tap away for a summary before you commit. Watching always happens in the official YouTube app, so Premium (no ads, Jump Ahead) keeps working.
 
-No thumbnails. No Shorts. No autoplay. No backend, no API keys, no patched apps.
+It is personal software: built for one person's daily routine, shared as-is. Why it exists and what it deliberately isn't: [docs/PRODUCT.md](docs/PRODUCT.md).
+
+## What it does
+
+- **Text rows instead of cards** on Home, Subscriptions, Watch Later and playlists: title, channel, duration, views and age. Mixes and playlist cards become rows too.
+- **No distractions:** thumbnails, Shorts (including the tab), posts, mini-games and promo shelves are hidden. YouTube's own cards never flash before their row is ready.
+- **Watch progress** as a thin red bar on the row's divider; finished videos are dimmed.
+- **✦ Ask** on every video row opens a sheet with YouTube's Gemini summary, follow-up suggestions and free-text questions. Nothing loads until you tap, and the player never starts.
+- **Timestamps in answers** open the video in the app at that moment.
+- **Tap a title** (or *Watch on YouTube*) to open it in the official app: videos, Mixes and playlists alike.
+- **⋮** opens YouTube's own menu for the video (Save to Watch Later, etc.).
+- Google Sans Flex throughout; follows the system light/dark theme.
+- **Installable** as a home-screen web app that starts on Subscriptions.
 
 ## How it works
 
-YouTube already has an **Ask** button (Gemini) under the player on the watch page. YourTube calls the same thing from the feed:
+Everything runs inside your signed-in `m.youtube.com` page. There is no server and no API key.
 
-1. `POST /youtubei/v1/next` for the video — the response carries the Ask panel (`PAyouchat`): suggested prompts, each with a continuation token, plus the composer token for free-text questions.
-2. `POST /youtubei/v1/get_panel` with the *Summarize the video* continuation returns the answer as Markdown, with timestamps and follow-up suggestions.
-3. Follow-ups send `userInputText` plus `previousClientMessageId` to keep the thread.
-
-Both calls are made from inside your signed-in page, so the answers are exactly what YouTube's own Ask feature would give you. The player is never loaded, so nothing autoplays.
-
-Everything else is presentation: feed cards are read from YouTube's own renderer data (`el.data`) and re-rendered as text rows; thumbnails, Shorts, posts and mini-games are hidden with CSS.
-
-### Features
-
-- Text-only rows for Home, Subscriptions, Watch Later and playlists, with watch progress as a thin red bar (finished videos dimmed); Mixes and playlist cards become rows too
-- No flash of YouTube's own cards: they stay hidden until their text row is ready
-- ✦ **Ask Gemini** sheet: auto-summary, follow-up chips, free-text questions
-- Timestamps in answers are pills that open the video **at that moment** in the YouTube app
-- Title tap / **Watch on YouTube** opens the official app (keeps Premium features like Jump Ahead) — videos, Mixes and playlists alike, also from the installed web app (via the app's `vnd.youtube:` scheme)
-- ⋮ opens YouTube's own menu for the video (save to Watch Later, etc.)
-- Google Sans Flex throughout; follows YouTube's light/dark theme
-- Installable as a standalone web app (the script supplies the missing web-app manifest)
+- **Feed:** each card's renderer data (`el.data`) is read and re-rendered as a text row; YouTube's own card stays hidden underneath.
+- **Ask:** the same calls YouTube's watch page makes, made from the feed instead:
+  1. `POST /youtubei/v1/next` for the video returns the Ask panel: suggested prompts with continuation tokens, and a token for free-text questions.
+  2. `POST /youtubei/v1/get_panel` with the *Summarize* continuation returns the answer as Markdown.
+  3. Follow-ups send the question with `previousClientMessageId` to keep the thread.
+- **Opening the app:** links use the YouTube app's own `vnd.youtube:///…` scheme, the one form that also works from an installed web app.
+- **Web app:** YouTube ships no manifest on mobile, so the script supplies one with a generated icon.
 
 ## Install (Android)
 
-1. Use a Chromium browser that supports extensions — e.g. **Vivaldi** (8.2+), Edge, Quetta, Lemur.
-2. Install **[Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)**. On recent Chromium, enable *Allow user scripts* in the extension's details.
-3. Open **[`src/yourtube.user.js` (raw)](https://raw.githubusercontent.com/eggmasonvalue/yourtube/main/src/yourtube.user.js)** and tap **Install**.
+1. A Chromium browser with extension support. Developed on **Vivaldi**; Chrome for Android has no extensions.
+2. Install **[Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)** and, on recent Chromium, enable *Allow user scripts* in its extension details.
+3. Open **[`src/yourtube.user.js`](https://raw.githubusercontent.com/eggmasonvalue/yourtube/main/src/yourtube.user.js)** and tap **Install**.
 4. Sign in on `m.youtube.com` and reload.
-5. Optional: browser menu → **Install app** / **Add to home screen**.
+5. Optional: browser menu → **Add to home screen**.
 
-Requires a signed-in account in a region where YouTube's Ask feature is available (check for the ✦ Ask button under any video).
-
-## Development
-
-The repo includes small tools for driving the browser on a USB-connected phone via the Chrome DevTools Protocol (`adb` + Node ≥ 22):
-
-```sh
-adb forward tcp:9333 localabstract:chrome_devtools_remote_<pid>   # browser's devtools socket
-node tools/cdp.mjs --file src/yourtube.user.js                     # hot-inject the script into the open tab
-node tools/cdp.mjs 'document.title'                                # evaluate anything in the page
-node tools/cdp.mjs --method Page.getInstallabilityErrors '{}'      # raw CDP call
-node tools/cdp-net.mjs 15 out.json '<expr>'                        # run expr and capture /youtubei traffic
-node tools/serve.mjs                                               # serve src/ to the phone over adb reverse
-```
-
-Find the browser's devtools socket with `adb shell cat /proc/net/unix | grep devtools` and match the PID with `adb shell pidof <package>`.
-
-## Caveats
-
-- This relies on YouTube's **internal, undocumented** web API and page structure. It will break when YouTube changes them; fixes are usually small.
-- Not affiliated with or endorsed by YouTube or Google.
+Ask needs a signed-in account where YouTube's Ask feature is available (look for ✦ Ask under any video). Premium is optional but is the point of handing playback to the app.
 
 ## Roadmap
 
-- Sub-feeds: classify feed items with a decision model (e.g. Jev / Clef) into topics such as *deep dives*, *news*, *favourite creators*, *likely bait*.
+**Lanes and a backlog you can trust.** A decision model (Clef / Gemini Decision) labels each video by topic, format and shelf life, so a feed can be narrowed to one lane or a typed intent. **Keep** saves long-lived videos into machine-curated lane playlists for downtime; short-lived ones stay in the daily feed. Design and open questions: [docs/PRODUCT.md](docs/PRODUCT.md).
+
+## Development
+
+Tools for driving the browser on a connected phone over the Chrome DevTools Protocol (`adb` + Node ≥ 22):
+
+```sh
+adb forward tcp:9333 localabstract:chrome_devtools_remote   # or chrome_devtools_remote_<pid>
+node tools/cdp.mjs --file src/yourtube.user.js               # hot-inject the script into the open tab
+node tools/cdp.mjs 'document.title'                          # evaluate anything in the page
+node tools/cdp.mjs --method Page.getInstallabilityErrors '{}' # raw CDP call
+node tools/cdp-net.mjs 15 out.json '<expr>'                  # run expr and capture /youtubei traffic
+node tools/serve.mjs                                         # serve src/ to the phone over adb reverse
+```
+
+List the devtools sockets with `adb shell grep -a devtools /proc/net/unix`; `curl localhost:9333/json/version` shows which browser owns one.
+
+## Caveats
+
+- Built on YouTube's **internal, undocumented** web API and page structure. It will break when they change; fixes are usually small.
+- It only makes requests you trigger, as the signed-in you, at human pace. Keep it that way: the account matters more than the script.
+- Not affiliated with or endorsed by YouTube or Google.
 
 ## License
 
