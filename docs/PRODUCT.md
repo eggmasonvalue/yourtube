@@ -114,6 +114,8 @@ YouTube's Terms forbid automated access without permission; the official Data AP
 A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installable as a home-screen web app).
 
 - It runs inside the signed-in session, so Ask, Watch Later and private playlists work with no OAuth and no keys.
+- **Split by what needs the session.** Only Ask, reading Watch Later and private playlists, Keep, and rendering must run on `m.youtube.com`; a userscript is the lightest thing that can. Everything else (metadata, classification, cache, scheduled work) lives in the Worker, which the page can reach directly: `m.youtube.com` sets no `connect-src` CSP, so a CORS-enabled Worker needs no special grants.
+- **Fallback:** if userscripts stop working in the browser, the same code becomes an MV3 extension content script. A separate site or native app can't call Ask or read Watch Later, which rules them out.
 - **Rejected:** patched or modded clients (ReVanced etc.: ban risk to the main account); YouTube Lite (no Jump Ahead); WebView wrapper apps (Google blocks sign-in in WebViews); Chrome (no extensions on Android); yt-dlp and third-party frontends (lose Premium; see the alignment principle).
 
 ## Open questions
