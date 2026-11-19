@@ -57,37 +57,52 @@ A layer between *opening YouTube* and *pressing play* that preserves intent, in 
 
 ### Who writes the questions, who answers them
 
-- **An LLM writes the questions** — rare, cheap, needs judgement: draft lanes and their definitions from my real subscriptions and titles. I edit and approve.
-- **A decision model answers them** (Clef / Gemini Decision / Jev) — frequent, fast, typed, calibrated: is this video one of those?
+- **A decision model answers; it doesn't reason.** Jev, Gemini Decision and Clef score each question in one pass and return calibrated probabilities, not text. They answer what is visible at a glance in the inputs.
+- **The reasoning lives in code.** A composite judgement (a lane, a shelf life) is never one question: asking "which lane?" or "how long will this last?" makes the model do reasoning it can't. It is split into atomic questions, and code combines the answers.
+- **An LLM writes the questions and the logic.** Rare, needs judgement: it drafts both from my data and maintains them. I approve.
+- **Corrections drive improvement.** When a video lands wrong (Keep picks the wrong lane, a stale video isn't caught), the case and my expected answer join a test suite; the LLM adjusts a question or the logic and replays the whole suite. A logic change replays instantly from cached answers; only a new question asks the model again.
 
 ### What is asked about every video
 
-**A question exists only because a behaviour reads its answer, and only if metadata can't answer it.**
+**A question exists only because a behaviour reads its answer, only if metadata can't answer it, and only if it can be answered at a glance.**
 
-| Question | Type | Cached | Read by |
-|---|---|---|---|
-| **Lanes**: "does this belong in <lane>?", one per lane | yes/no each | forever; a new lane adds one question | lane filter, Keep, suggestions, unmatched alarm |
-| **Shelf life**: how long will it stay worth watching? hours, days, weeks, months, evergreen | ordered choice | forever | Keep gate, suggestions, backlog order, stale checks |
-| **Listen**: does it work as audio only? | yes/no | forever | *listen* filter in triage and backlog |
-| **Typed intent**: "something light while I eat" | yes/no | no, per session | triage filter |
+Atomic questions, cached per video forever:
+
+| Group | Examples | Combined in code into |
+|---|---|---|
+| **Topics**, one `noul` per topic | "Is it about stocks or investing?", "Is it about an NBA game, player or team?" | lanes, the unmatched alarm |
+| **Timeliness cues** | "Is it about a specific recent event?", "Is it a recap of a game or race?", "Is it a review of a product?", "Does it explain a concept or teach a skill?" | shelf life: days, weeks, months, evergreen |
+| **Listening cues** | "Is it a conversation or a talking head?", "Does it depend on visuals: demos, charts, gameplay, screen recordings?" | listen |
+
+Derived in code, from those answers and metadata:
+
+| Output | Read by |
+|---|---|
+| **Lanes**, several possible | lane filter, Keep, suggestions |
+| **Shelf life** | Keep gate, suggestions, backlog order, stale checks |
+| **Listen** | the *listen* filter in triage and backlog |
+| **Unmatched**: no topic fires | the ~15% alarm |
+
+Asked per session, not cached: **typed intent** ("something light while I eat"), one `noul` over the current list (in the first classifier release). A repeated intent can become a topic or a lane.
 
 - **Metadata answers the rest, no model:** music (YouTube category 10, ~97% on a labelled sample), Shorts, length, live/upcoming, language, age, channel.
 - **Not asked:** format (nothing reads it; "only interviews" is a typed intent), quality or bait (Ask's territory), worth my time (my call), mental effort (typed intent).
-- **Question type follows the shape of the answer.** Lanes are independent yes/no questions, so a video can sit in several (an Anthropic IPO video is both AI and Markets), "clearly both" (0.9/0.9) stays distinct from "unsure" (0.5/0.5), and adding a lane never changes the existing answers. Phrase them as "belongs in", never "mainly about", which would quietly make them one choice. A typed intent is the same mechanism (in the first classifier release); a repeated intent can be promoted to a lane or a fixed question.
+- **Independent `noul` questions, not one `choice`.** Topics overlap (an AI-IPO video is both AI and Markets). Independent questions keep "clearly both" (0.9/0.9) apart from "unsure" (0.5/0.5); a `choice` makes probabilities sum to one and splits them. A question's `true`/`false` descriptions name what is visible in the inputs and never refer to other questions.
+- **Lanes are logic, not questions.** Redefining, merging or adding a lane edits code and replays cached answers. Only a subject no topic covers needs a new question, asked of the videos that still matter (the feed window and the backlog).
 - **Listen is fixed, not a typed intent,** because listening is a recurring situation (commutes, chores, long podcasts), and it's a timeless property worth caching.
-- **Shelf life is an estimate, not "is it stale?".** The model estimates a timeless property (cached forever); the code compares it with the video's age at render time to decide staleness.
-- **Low confidence is information.** Calibrated probabilities show when a video fits no lane. When that unmatched share grows (~15%), the LLM proposes a lane from those videos; nothing changes without my approval. No scheduled redrafts.
-- **Lanes are stable.** They become playlist names, so redrafting them is a rare, deliberate event.
+- **Shelf life is derived, never "is it stale?".** The cues are timeless and cached forever; code compares the derived shelf life with the video's age at render time.
+- **Low confidence is information.** When the unmatched share grows (~15%), the LLM proposes a topic and a lane from those videos; nothing changes without my approval. No scheduled redrafts.
+- **Lanes are stable.** They become playlist names, so redefining what a lane holds is cheap, but renaming or splitting one is a rare, deliberate event.
 
 ### Drafting lanes
 
 Lanes are personal: they live in the owner's private config (`personal/`, a separate private repo, gitignored here), along with the data findings behind them. The method:
 
 - **Three sources, three roles.** Subscriptions show supply: each channel's uploads over a fixed window, not a feed snapshot that daily posters dominate. Watch history shows **persistence and completion, never volume**: volume reflects what was easiest to reach. Saved playlists only test coverage: if watched videos get removed, what's left is what wasn't finished.
-- **Label topics, then group.** Per channel, and per video for channels that span several subjects; group the labels into families.
+- **Label topics, then group.** Per channel, and per video for channels that span several subjects; group the labels into families. The families become the topic questions, and each lane is code over them.
 - **Lasting interest or phase.** A family watched in most months with no dominant month is a lasting interest. One concentrated in a month or two is a phase: typed intent covers it, not a lane.
 - **Split by the choice made in the moment** (building vs following an industry), not by subject taxonomy.
-- **Few lanes, no catch-all:** about a dozen at most, each with explicit exclusions, covering ~85% of feed and history together.
+- **Few lanes, no catch-all:** about a dozen at most, exclusions expressed in code (a topic that rules a video out), covering ~85% of feed and history together.
 - **Volume isn't preference.** A lane can be overconsumed (no extra prominence) or aspirational (a reason for the backlog to exist).
 - An LLM drafts from the data; the owner decides.
 
@@ -100,8 +115,9 @@ Lanes are personal: they live in the owner's private config (`personal/`, a sepa
 
 ### Where it runs
 
-- A small **Cloudflare Worker** (mine, free tier): enrich via the Data API → decision model → cache per video ID, forever. Each video is classified once.
-- Decision model behind the Worker is swappable; they share one question format (yes/no, choice, score). Default **Clef-flash** via the Workers AI binding (no extra key; ~1.2M free tokens/day ≈ 3,000 videos). **Gemini Decision 1** (Nov 2026; free tier, 1,000 questions per request) is the alternative.
+- A small **Cloudflare Worker** (mine, free tier): enrich via the Data API → atomic questions to the decision model → cache the answers per video ID, forever. Each video is asked once; the logic runs on cached answers.
+- **The decision model is swappable:** Jev's System One request (a `state` plus typed `noul` / `choice` / `score` questions) is shared by Jev 1.13 ($0.042 per 1M input tokens; on OpenCode Console, with a free variant for a limited time), Gemini Decision 1 and GPT-6 Luna Decision (same OpenCode endpoint), and Clef. Clef-flash runs on Workers AI through the binding (no extra key; up to 64 questions per request; ~1.2M free tokens/day).
+- **The default is chosen by test:** accuracy on my reviewed cases, recall when a video has two topics (in a public test Clef-flash missed one of three intents that Clef caught), and cost per video.
 - On-device (Pixel TPU via AICore / Gemini Nano) is unreachable from a web page; not pursued.
 
 ## Backlog structure
@@ -113,7 +129,7 @@ Lanes are personal: they live in the owner's private config (`personal/`, a sepa
 | **Manual playlists** | Purpose-built by me (e.g. music); never touched by the machine. |
 | **Legacy playlists** (info / infotainment / entertainment) | Sorting is ruined; migrated once into lanes, some time later. |
 
-- **Keep** saves to the highest-probability lane; to Watch Later when no lane matches or the shelf life is short. Whether probabilities from separate yes/no questions compare well enough for this is untested.
+- **Keep** saves to the lane whose strongest topic is most probable; to Watch Later when no lane matches or the shelf life is short. Whether probabilities from separate questions compare well enough for this is untested.
 - **Only long shelf-life videos enter the backlog.** Short-lived ones live and die in triage; if I don't get to them while they're in the feed, they didn't matter. Watch Later covers exceptions.
 - **Migrations re-triage.** Watch Later and legacy items go through the same gate: long-lived ones move to lanes, stale ones are proposed for removal, with one approval from me for the whole batch.
 - Classification alone doesn't fix "the back never gets watched": lane playlists will grow too. The backlog view must order for consumption: **soonest to go stale first** (shelf life minus age), evergreen last and oldest-saved first among them; evergreen can always wait.
@@ -159,5 +175,5 @@ A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installabl
 
 ## Open questions
 
-- **Lane definitions:** test against real titles: unmatched share, overlaps, and whether Keep's highest-probability routing picks the lane I would.
-- **Classifier cost:** ~12 questions per video (one per lane, shelf life, listen); re-measure the free-tier estimate.
+- **Atomic questions and logic:** draft them, then test against the decision models with my review as ground truth: their disagreements, low-confidence answers, unmatched videos, and Keep's routing.
+- **Classifier cost:** ~30–40 atomic questions per video (topics, timeliness and listening cues); measure tokens per video for each model.
