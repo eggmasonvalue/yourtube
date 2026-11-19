@@ -69,7 +69,7 @@ A layer between *opening YouTube* and *pressing play* that preserves intent, in 
 | **Shelf life** — hours, days, weeks, months, evergreen | score | fixed in code | never |
 | **Intent** — "something light while I eat" | yes/no | typed by me | per session |
 
-- **Question type follows the shape of the answer.** Lanes are independent yes/no questions, so a video can sit in several (an Anthropic IPO video is both AI and Markets) and adding a lane never changes the existing answers. A typed intent is the same mechanism; a repeated intent can be promoted to a lane.
+- **Question type follows the shape of the answer.** Lanes are independent yes/no questions, so a video can sit in several (an Anthropic IPO video is both AI and Markets) and adding a lane never changes the existing answers. A typed intent is the same mechanism (in the first classifier release); a repeated intent can be promoted to a lane.
 - **Shelf life is a score, not "is it stale?".** The model estimates a timeless property (cached forever); the code compares it with the video's age at render time to decide staleness.
 - **Low confidence is information.** Calibrated probabilities show when a video fits no lane. When that unmatched share grows (~15%), the LLM proposes a lane from those videos; nothing changes without my approval. No scheduled redrafts.
 - **Lanes are stable.** They become playlist names, so redrafting them is a rare, deliberate event.
@@ -99,7 +99,19 @@ A layer between *opening YouTube* and *pressing play* that preserves intent, in 
 - **Keep** saves to the single best-matching lane.
 - **Only long shelf-life videos enter the backlog.** Short-lived ones live and die in triage; if I don't get to them while they're in the feed, they didn't matter. Watch Later covers exceptions.
 - **Migrations re-triage.** Watch Later and legacy items go through the same gate: long-lived ones move to lanes, stale ones are proposed for removal, with one approval from me for the whole batch.
-- Classification alone doesn't fix "the back never gets watched": lane playlists will grow too. The backlog view must order for consumption (evergreen, oldest-saved first) and handle watched items.
+- Classification alone doesn't fix "the back never gets watched": lane playlists will grow too. The backlog view must order for consumption (evergreen, oldest-saved first).
+- **Watched items are hidden in the backlog view, never auto-removed.** The playlists stay as they are; the machine doesn't change them on its own. If watched items pile up, an occasional cleanup proposes removing them, with one approval from me for the whole batch, like migrations.
+
+### Suggestions: auto-fill with a human in the loop
+
+Keep is the main way in. Alongside it, the machine proposes additions in a batch I approve, without becoming a recommender.
+
+- **Only from my subscriptions.** Never the catalog, not even Liked videos: it routes what I chose to follow; it doesn't recommend.
+- **Same gate as Keep:** long shelf life (months or evergreen) and a confident lane match.
+- **Only what triage never reached.** A row that was on screen and not kept was a decision; it isn't proposed again. We render the list, so recording what was shown is cheap.
+- **One weekly review:** plain rows, approve all or untick some. Nothing enters a lane without it.
+- **No cap at first;** the backlog view shows each lane's size and unwatched count, and I calibrate from what happens. These defaults are a starting point, not settled.
+- **To explore if lanes outgrow my watching:** suggestions only replace what I've watched. Each review, a lane gets at most as many suggestions as I watched from it since the last one. Only Keep grows the backlog, and the cap follows my watching with no number to tune.
 
 ## Account safety
 
@@ -118,10 +130,16 @@ A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installabl
 - **Fallback:** if userscripts stop working in the browser, the same code becomes an MV3 extension content script. A separate site or native app can't call Ask or read Watch Later, which rules them out.
 - **Rejected:** patched or modded clients (ReVanced etc.: ban risk to the main account); YouTube Lite (no Jump Ahead); WebView wrapper apps (Google blocks sign-in in WebViews); Chrome (no extensions on Android); yt-dlp and third-party frontends (lose Premium; see the alignment principle).
 
+### Rendering: our own lists, YouTube's own data
+
+**List pages** (subscriptions, Watch Later, playlists) **are rendered by us**; everything else, Home included, stays YouTube's page, decorated.
+
+- **Why:** the backlog needs things YouTube's list page can't do: its own order (evergreen, oldest-saved first), hiding watched items, filtering a whole 100+ item playlist. On a decorated page, hiding most rows only makes YouTube's infinite scroll load more on its own schedule. Owning the list also retires the hide-then-transform machinery (mutation observers, rescans, the old-format flash).
+- **How:** fetch with `innertube('browse')` and follow continuations, the same requests the page makes when scrolling. They return the renderers the adapters already map (`playlistVideoRenderer`, `videoWithContextRenderer`). Mount on the platform's `navigatesuccess` event (fires ~50 ms after every in-app navigation, back included, before YouTube's own `state-navigateend` at ~550 ms); a top-level node survives navigation. YouTube's list is hidden underneath.
+- **Cost:** playlists page at 20 items (~330 ms each, sequential: each response carries the next token). A 170-item playlist loads in ~3 s, a 314-item one in ~5.5 s. So rows stream in as pages arrive, and lists are cached on the device: instant on reopen, refreshed in the background. A full load is the same traffic as scrolling to the bottom, so no account-safety concern.
+- **Lost, rebuilt:** the native ⋯ menu. Keep replaces Save; "Not interested" and "Remove from playlist" are one innertube call each.
+- Innertube calls must send `x-goog-authuser` (the page's `SESSION_INDEX`); otherwise they silently hit the device's first Google account.
+
 ## Open questions
 
-- **Auto-fill with a human in the loop.** v1 of the backlog is Keep-driven. Can the machine propose additions for batch approval without becoming a recommender? Needs workshopping.
-- **Typed intent:** in the first classifier release, or later?
 - **The lanes themselves:** to be drafted from my real subscriptions and titles, once the product above is settled.
-- **Watched items in lane playlists:** removed, hidden in the backlog view, or left alone?
-- **Decorate YouTube's pages or render our own** (still inside m.youtube.com)? Filtering a 100+ item playlist by lane needs all of it loaded, which YouTube's page doesn't do.
