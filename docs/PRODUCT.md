@@ -39,7 +39,7 @@ Corollary: **build thin where YouTube might eventually build it** (the classifie
 A layer between *opening YouTube* and *pressing play* that preserves intent, in two modes:
 
 **Triage** (daily, ephemeral) — the subscription feed (also Home, Watch Later, any playlist page).
-1. **Narrow:** filter rows by lane, format or a typed intent.
+1. **Narrow:** filter rows by lane, by *listen* (works as audio only) or by a typed intent. Music is hidden by default.
 2. **Decide:** read title and metadata; tap ✦ Ask for a summary when unsure.
 3. **Act:** watch now in the app, or **Keep** — YourTube saves it to the right lane playlist.
 
@@ -62,29 +62,46 @@ A layer between *opening YouTube* and *pressing play* that preserves intent, in 
 
 ### What is asked about every video
 
-| Axis | Type | Defined by | Changes |
-|---|---|---|---|
-| **Format** — review, explainer, news/commentary, podcast/interview, tutorial, highlights, stream VOD, music | choice | fixed in code | never |
-| **Lanes** — my topics (e.g. AI, Markets, Gadgets, Cricket, NBA) | one yes/no per lane | LLM-drafted, I approve | rarely |
-| **Shelf life** — hours, days, weeks, months, evergreen | score | fixed in code | never |
-| **Intent** — "something light while I eat" | yes/no | typed by me | per session |
+**A question exists only because a behaviour reads its answer, and only if metadata can't answer it.**
 
-- **Question type follows the shape of the answer.** Lanes are independent yes/no questions, so a video can sit in several (an Anthropic IPO video is both AI and Markets) and adding a lane never changes the existing answers. A typed intent is the same mechanism (in the first classifier release); a repeated intent can be promoted to a lane.
-- **Shelf life is a score, not "is it stale?".** The model estimates a timeless property (cached forever); the code compares it with the video's age at render time to decide staleness.
+| Question | Type | Cached | Read by |
+|---|---|---|---|
+| **Lanes**: "does this belong in <lane>?", one per lane | yes/no each | forever; a new lane adds one question | lane filter, Keep, suggestions, unmatched alarm |
+| **Shelf life**: how long will it stay worth watching? hours, days, weeks, months, evergreen | ordered choice | forever | Keep gate, suggestions, backlog order, stale checks |
+| **Listen**: does it work as audio only? | yes/no | forever | *listen* filter in triage and backlog |
+| **Typed intent**: "something light while I eat" | yes/no | no, per session | triage filter |
+
+- **Metadata answers the rest, no model:** music (YouTube category 10, ~97% on a labelled sample), Shorts, length, live/upcoming, language, age, channel.
+- **Not asked:** format (nothing reads it; "only interviews" is a typed intent), quality or bait (Ask's territory), worth my time (my call), mental effort (typed intent).
+- **Question type follows the shape of the answer.** Lanes are independent yes/no questions, so a video can sit in several (an Anthropic IPO video is both AI and Markets), "clearly both" (0.9/0.9) stays distinct from "unsure" (0.5/0.5), and adding a lane never changes the existing answers. Phrase them as "belongs in", never "mainly about", which would quietly make them one choice. A typed intent is the same mechanism (in the first classifier release); a repeated intent can be promoted to a lane or a fixed question.
+- **Listen is fixed, not a typed intent,** because listening is a recurring situation (commutes, chores, long podcasts), and it's a timeless property worth caching.
+- **Shelf life is an estimate, not "is it stale?".** The model estimates a timeless property (cached forever); the code compares it with the video's age at render time to decide staleness.
 - **Low confidence is information.** Calibrated probabilities show when a video fits no lane. When that unmatched share grows (~15%), the LLM proposes a lane from those videos; nothing changes without my approval. No scheduled redrafts.
 - **Lanes are stable.** They become playlist names, so redrafting them is a rare, deliberate event.
+
+### Drafting lanes
+
+Lanes are personal: they live in the owner's private config (`personal/`, a separate private repo, gitignored here), along with the data findings behind them. The method:
+
+- **Three sources, three roles.** Subscriptions show supply: each channel's uploads over a fixed window, not a feed snapshot that daily posters dominate. Watch history shows **persistence and completion, never volume**: volume reflects what was easiest to reach. Saved playlists only test coverage: if watched videos get removed, what's left is what wasn't finished.
+- **Label topics, then group.** Per channel, and per video for channels that span several subjects; group the labels into families.
+- **Lasting interest or phase.** A family watched in most months with no dominant month is a lasting interest. One concentrated in a month or two is a phase: typed intent covers it, not a lane.
+- **Split by the choice made in the moment** (building vs following an industry), not by subject taxonomy.
+- **Few lanes, no catch-all:** about a dozen at most, each with explicit exclusions, covering ~85% of feed and history together.
+- **Volume isn't preference.** A lane can be overconsumed (no extra prominence) or aspirational (a reason for the backlog to exist).
+- An LLM drafts from the data; the owner decides.
 
 ### What the classifier sees
 
 - Text only: title, channel, duration, plus description, tags, category and topic categories from the **YouTube Data API**, called by the Worker with an API key (free quota: 10,000 units/day; `videos.list` costs 1 unit per 50 videos). The lookups never touch my signed-in session.
 - Before building, survey the full Data API surface (video and channel resources) for any other useful signals; channel-level data cached per channel is a likely prior for single-topic channels.
-- **No thumbnails.** For topic, format and shelf life they carry little the text doesn't, at the cost of image tokens and multi-second latency. Revisit only if format accuracy measurably suffers.
+- **No thumbnails.** For lanes, shelf life and listen they carry little the text doesn't, at the cost of image tokens and multi-second latency. Revisit only if accuracy measurably suffers.
 - YouTube's own category is creator-chosen and coarse (market commentary and an AI-IPO analysis are both "Education"): an input feature, never the classifier.
 
 ### Where it runs
 
 - A small **Cloudflare Worker** (mine, free tier): enrich via the Data API → decision model → cache per video ID, forever. Each video is classified once.
-- Decision model behind the Worker is swappable; they share one question format (noul / choice / score). Default **Clef-flash** via the Workers AI binding (no extra key; ~1.2M free tokens/day ≈ 3,000 videos). **Gemini Decision 1** (Nov 2026; free tier, 1,000 questions per request) is the alternative.
+- Decision model behind the Worker is swappable; they share one question format (yes/no, choice, score). Default **Clef-flash** via the Workers AI binding (no extra key; ~1.2M free tokens/day ≈ 3,000 videos). **Gemini Decision 1** (Nov 2026; free tier, 1,000 questions per request) is the alternative.
 - On-device (Pixel TPU via AICore / Gemini Nano) is unreachable from a web page; not pursued.
 
 ## Backlog structure
@@ -96,10 +113,10 @@ A layer between *opening YouTube* and *pressing play* that preserves intent, in 
 | **Manual playlists** | Purpose-built by me (e.g. music); never touched by the machine. |
 | **Legacy playlists** (info / infotainment / entertainment) | Sorting is ruined; migrated once into lanes, some time later. |
 
-- **Keep** saves to the single best-matching lane.
+- **Keep** saves to the highest-probability lane; to Watch Later when no lane matches or the shelf life is short. Whether probabilities from separate yes/no questions compare well enough for this is untested.
 - **Only long shelf-life videos enter the backlog.** Short-lived ones live and die in triage; if I don't get to them while they're in the feed, they didn't matter. Watch Later covers exceptions.
 - **Migrations re-triage.** Watch Later and legacy items go through the same gate: long-lived ones move to lanes, stale ones are proposed for removal, with one approval from me for the whole batch.
-- Classification alone doesn't fix "the back never gets watched": lane playlists will grow too. The backlog view must order for consumption (evergreen, oldest-saved first).
+- Classification alone doesn't fix "the back never gets watched": lane playlists will grow too. The backlog view must order for consumption: **soonest to go stale first** (shelf life minus age), evergreen last and oldest-saved first among them; evergreen can always wait.
 - **Watched items are hidden in the backlog view, never auto-removed.** The playlists stay as they are; the machine doesn't change them on its own. If watched items pile up, an occasional cleanup proposes removing them, with one approval from me for the whole batch, like migrations.
 
 ### Suggestions: auto-fill with a human in the loop
@@ -134,7 +151,7 @@ A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installabl
 
 **List pages** (subscriptions, Watch Later, playlists) **are rendered by us**; everything else, Home included, stays YouTube's page, decorated.
 
-- **Why:** the backlog needs things YouTube's list page can't do: its own order (evergreen, oldest-saved first), hiding watched items, filtering a whole 100+ item playlist. On a decorated page, hiding most rows only makes YouTube's infinite scroll load more on its own schedule. Owning the list also retires the hide-then-transform machinery (mutation observers, rescans, the old-format flash).
+- **Why:** the backlog needs things YouTube's list page can't do: its own order (soonest to go stale first), hiding watched items, filtering a whole 100+ item playlist. On a decorated page, hiding most rows only makes YouTube's infinite scroll load more on its own schedule. Owning the list also retires the hide-then-transform machinery (mutation observers, rescans, the old-format flash).
 - **How:** fetch with `innertube('browse')` and follow continuations, the same requests the page makes when scrolling. They return the renderers the adapters already map (`playlistVideoRenderer`, `videoWithContextRenderer`). Mount on the platform's `navigatesuccess` event (fires ~50 ms after every in-app navigation, back included, before YouTube's own `state-navigateend` at ~550 ms); a top-level node survives navigation. YouTube's list is hidden underneath.
 - **Cost:** playlists page at 20 items (~330 ms each, sequential: each response carries the next token). A 170-item playlist loads in ~3 s, a 314-item one in ~5.5 s. So rows stream in as pages arrive, and lists are cached on the device: instant on reopen, refreshed in the background. A full load is the same traffic as scrolling to the bottom, so no account-safety concern.
 - **Lost, rebuilt:** the native ⋯ menu. Keep replaces Save; "Not interested" and "Remove from playlist" are one innertube call each.
@@ -142,4 +159,5 @@ A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installabl
 
 ## Open questions
 
-- **The lanes themselves:** to be drafted from my real subscriptions and titles, once the product above is settled.
+- **Lane definitions:** test against real titles: unmatched share, overlaps, and whether Keep's highest-probability routing picks the lane I would.
+- **Classifier cost:** ~12 questions per video (one per lane, shelf life, listen); re-measure the free-tier estimate.
