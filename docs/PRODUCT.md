@@ -117,7 +117,7 @@ Lanes are personal: they live in the owner's private config (`personal/`, a sepa
 
 - A small **Cloudflare Worker** (mine, free tier): enrich via the Data API → atomic questions to the decision model → cache the answers per video ID, forever. Each video is asked once; the logic runs on cached answers.
 - **The decision model is swappable:** Jev's System One request (a `state` plus typed `noul` / `choice` / `score` questions) is shared by Jev 1.13 ($0.042 per 1M input tokens; on OpenCode Console, with a free variant for a limited time), Gemini Decision 1 and GPT-6 Luna Decision (same OpenCode endpoint), and Clef. Clef-flash runs on Workers AI through the binding (no extra key; up to 64 questions per request; ~1.2M free tokens/day).
-- **The default is chosen by test:** accuracy on my reviewed cases, recall when a video has two topics (in a public test Clef-flash missed one of three intents that Clef caught), and cost per video.
+- **Default: Gemini Decision 1**, chosen by test (Nov 2026): on 25 reviewed videos it was fully right on 22, Clef on 9, and it was less often unsure (6% of answers between 0.3 and 0.7, against Clef's 10–11%). ~2,850 input tokens per video, so ~100 new videos a day fit the free tier (10,000 requests a day; 50,000 tokens a minute, so bulk jobs are throttled). Clef stays a drop-in alternative.
 - On-device (Pixel TPU via AICore / Gemini Nano) is unreachable from a web page; not pursued.
 
 ## Backlog structure
@@ -175,5 +175,4 @@ A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installabl
 
 ## Open questions
 
-- **Atomic questions and logic:** draft them, then test against the decision models with my review as ground truth: their disagreements, low-confidence answers, unmatched videos, and Keep's routing.
-- **Classifier cost:** ~30–40 atomic questions per video (topics, timeliness and listening cues); measure tokens per video for each model.
+- **Grow the test suite:** more reviewed rounds on fresh videos. Single-case misses (a missing secondary lane, news analysis read as news) wait until a pattern shows.
