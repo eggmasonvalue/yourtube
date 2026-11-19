@@ -66,7 +66,8 @@
     location.href = `vnd.youtube://${path}`;
   };
 
-  // Innertube: same-origin calls with the signed-in session.
+  // Innertube: same-origin calls with the signed-in session. x-goog-authuser picks the signed-in Google account
+  // the page uses; without it, requests silently go to account 0 (empty playlists when YouTube runs on another).
   const innertube = async (endpoint, body) => {
     const sapisid = document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/)?.[1];
     const ts = Math.floor(Date.now() / 1000);
@@ -80,6 +81,7 @@
         'x-youtube-client-name': String(ytcfg.get('INNERTUBE_CONTEXT_CLIENT_NAME')),
         'x-youtube-client-version': ytcfg.get('INNERTUBE_CLIENT_VERSION'),
         'x-origin': location.origin,
+        'x-goog-authuser': ytcfg.get('SESSION_INDEX') ?? '0',
         ...(hash && { authorization: `SAPISIDHASH ${ts}_${hash}` }),
       },
       body: JSON.stringify({ context: ytcfg.get('INNERTUBE_CONTEXT'), ...body }),
