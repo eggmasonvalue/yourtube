@@ -60,7 +60,7 @@ A layer between *opening YouTube* and *pressing play* that preserves intent, in 
 - **A decision model answers; it doesn't reason.** Jev, Gemini Decision and Clef score each question in one pass and return calibrated probabilities, not text. They answer what is visible at a glance in the inputs.
 - **The reasoning lives in code.** A composite judgement (a lane, a shelf life) is never one question: asking "which lane?" or "how long will this last?" makes the model do reasoning it can't. It is split into atomic questions, and code combines the answers.
 - **An LLM writes the questions and the logic.** Rare, needs judgement: it drafts both from my data and maintains them. I approve.
-- **Corrections drive improvement.** When a video lands wrong (Keep picks the wrong lane, a stale video isn't caught), the case and my expected answer join a test suite; the LLM adjusts a question or the logic and replays the whole suite. A logic change replays instantly from cached answers; only a new question asks the model again.
+- **Corrections come from normal use, never from review rounds.** Changing Keep's lane (one tap on the "Saved to <lane> · change" toast), marking a video "not this lane" in a filter, or rejecting a stale proposal records the case with what I chose. Unticked suggestions are recorded but aren't corrections ("not worth my time" looks the same). Nothing is scheduled: when a few corrections pile up, or when I ask, an LLM session looks for a pattern, adjusts a question or the logic, and backtests against every past correction plus the 25 cases reviewed at launch. A logic change replays instantly from cached answers; only a new question asks the model again. A single miss waits until it's a pattern. If I never correct anything, nothing changes, and the conservative defaults (Watch Later when unsure, the 6-month cap) carry it.
 
 ### What is asked about every video
 
@@ -172,7 +172,3 @@ A **userscript on m.youtube.com** (Vivaldi + Tampermonkey on Android, installabl
 - **Cost:** playlists page at 20 items (~330 ms each, sequential: each response carries the next token). A 170-item playlist loads in ~3 s, a 314-item one in ~5.5 s. So rows stream in as pages arrive, and lists are cached on the device: instant on reopen, refreshed in the background. A full load is the same traffic as scrolling to the bottom, so no account-safety concern.
 - **Lost, rebuilt:** the native ⋯ menu. Keep replaces Save; "Not interested" and "Remove from playlist" are one innertube call each.
 - Innertube calls must send `x-goog-authuser` (the page's `SESSION_INDEX`); otherwise they silently hit the device's first Google account.
-
-## Open questions
-
-- **Grow the test suite:** more reviewed rounds on fresh videos. Single-case misses (a missing secondary lane, news analysis read as news) wait until a pattern shows.
