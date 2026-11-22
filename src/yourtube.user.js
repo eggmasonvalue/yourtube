@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.11
+// @version      0.3.12
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -40,7 +40,7 @@
   const icon = (d, cls = '') => svg('svg', { viewBox: '0 0 24 24', class: `yt-icon ${cls}` }, svg('path', { d }));
   const GEMINI = [['0', '#4285f4'], ['.55', '#9b72cb'], ['1', '#d96570']]; // gradient stops, shared by CSS/SVG/canvas
   const ICONS = {
-    spark: 'M12 1C12 7 17 12 23 12C17 12 12 17 12 23C12 17 7 12 1 12C7 12 12 7 12 1Z',
+    spark: 'M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81',
     send: 'M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a1 1 0 00-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .71.73 1.2 1.39.91z',
     close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
     play: 'M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86A1 1 0 008 5.14z',
@@ -439,8 +439,9 @@
     .yt-meta { color:var(--yt-mute); font-size:12.5px; margin-top:3px; font-stretch:95%; font-variant-numeric:tabular-nums; }
     .yt-meta span + span::before { content:' · '; }
     .yt-row button { flex:none; border:0; background:none; color:var(--yt-mute); padding:0; display:grid; place-items:center; }
-    .yt-row .yt-ask { width:44px; height:44px; border-radius:50%; background:var(--yt-surface); }
-    .yt-row .yt-ask .yt-icon { width:22px; height:22px; }
+    .yt-row .yt-ask { width:44px; height:44px; border-radius:50%; transition:background .12s ease, transform .1s ease; }
+    .yt-row .yt-ask:active { background:var(--yt-surface); transform:scale(.9); }
+    .yt-row .yt-ask .yt-icon { width:21px; height:21px; }
     .yt-row .yt-more { width:28px; height:44px; }
 
     /* ask sheet */
@@ -499,7 +500,7 @@
 
   // One shared gradient definition for every spark icon.
   const defs = svg('svg', { style: 'position:absolute;width:0;height:0' },
-    svg('linearGradient', { id: 'yt-gemini-grad', x1: 0, y1: 0, x2: 1, y2: 1 },
+    svg('linearGradient', { id: 'yt-gemini-grad', x1: 0.18, y1: 0.14, x2: 0.84, y2: 0.86 },
       ...GEMINI.map(([offset, color]) => svg('stop', { offset, 'stop-color': color }))));
   document.body.append(defs);
   cleanups.push(() => { style.remove(); defs.remove(); });
