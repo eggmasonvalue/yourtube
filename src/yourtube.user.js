@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.10
+// @version      0.3.11
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -91,20 +91,37 @@
   };
 
   // ── Feed cards → text rows ──────────────────────────────────────────────────
-  // Each adapter maps a card's renderer data to { id, title, parts[], length, url?, playlist? }.
+  // Each adapter maps a card's renderer data to { id, title, channel, channelUrl?, rest[], length, url?, playlist? }.
   // Searches are scoped to small subtrees: the full data includes large menu/command objects.
+  const channelUrlOf = (...nodes) => {
+    for (const n of nodes) {
+      const cmd = findAll(n, o => o.webCommandMetadata?.webPageType === 'WEB_PAGE_TYPE_CHANNEL')[0];
+      if (cmd?.webCommandMetadata?.url) return cmd.webCommandMetadata.url.replace(/^https?:\/\/[^/]+/, '');
+      const ep = findAll(n, o => o.browseEndpoint?.browseId?.startsWith('UC'))[0];
+      if (ep) return ep.browseEndpoint.canonicalBaseUrl || `/channel/${ep.browseEndpoint.browseId}`;
+    }
+    return null;
+  };
   const adapters = {
     'YT-LOCKUP-VIEW-MODEL': d => {
       const playlist = d.contentType === 'LOCKUP_CONTENT_TYPE_PLAYLIST';
       if (!playlist && d.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') return null;
       const meta = d.metadata?.lockupMetadataViewModel;
       const badges = findAll(d.contentImage, o => o.thumbnailBadgeViewModel).map(o => text(o.thumbnailBadgeViewModel.text));
+      const rows = findAll(meta?.metadata, o => Array.isArray(o.metadataParts))
+        .map(r => r.metadataParts.map(p => text(p.text)).filter(Boolean))
+        .filter(r => r.length);
+      const parts = rows.flat();
+      const channelUrl = channelUrlOf(meta?.image, meta?.metadata);
+      // On channel pages, lockups omit the channel row and show only stats (views · age).
+      const noChannel = !playlist && !channelUrl && rows.length === 1 && /\b(views?|watching|ago|streamed|premiered)\b/i.test(parts[0] ?? '');
       return {
         id: d.contentId,
         playlist,
         title: text(meta?.title),
-        parts: findAll(meta?.metadata, o => Array.isArray(o.metadataParts))
-          .flatMap(r => r.metadataParts.map(p => text(p.text))),
+        channel: noChannel ? '' : parts[0],
+        channelUrl,
+        rest: noChannel ? parts : parts.slice(1),
         length: playlist ? badges[0] : badges.find(isDuration), // "Mix" / "25 videos" for playlists
         url: playlist && (d.rendererContext?.commandContext?.onTap?.innertubeCommand?.commandMetadata?.webCommandMetadata?.url
           ?? `/playlist?list=${d.contentId}`),
@@ -113,13 +130,17 @@
     'YTM-VIDEO-WITH-CONTEXT-RENDERER': d => ({
       id: d.videoId,
       title: text(d.headline),
-      parts: [text(d.shortBylineText), text(d.shortViewCountText), text(d.publishedTimeText)],
+      channel: text(d.shortBylineText),
+      channelUrl: channelUrlOf(d.shortBylineText, d.channelThumbnail, d.longBylineText),
+      rest: [text(d.shortViewCountText), text(d.publishedTimeText)],
       length: text(d.lengthText),
     }),
     'YTM-PLAYLIST-VIDEO-RENDERER': d => ({
       id: d.videoId,
       title: text(d.title),
-      parts: [text(d.shortBylineText), ...text(d.videoInfo).split(' • ')],
+      channel: text(d.shortBylineText),
+      channelUrl: channelUrlOf(d.shortBylineText),
+      rest: text(d.videoInfo).split(' • '),
       length: text(d.lengthText),
     }),
   };
@@ -135,23 +156,31 @@
   const toItem = el => {
     const v = adapters[el.tagName]?.(el.data);
     if (!v?.id || !v.title) return null;
-    const [channel, ...rest] = v.parts.filter(Boolean);
+    const channelUrl = v.channelUrl
+      ?? el.querySelector('a[href^="/@"], a[href^="/channel/"], a[href^="/c/"], a[href^="/user/"]')?.getAttribute('href')
+      ?? null;
     return {
-      ...v, channel, url: v.url || `/watch?v=${v.id}`,
-      meta: [v.length, ...rest].filter(Boolean), progress: progressOf(el.data),
+      ...v,
+      channel: v.channel || '',
+      channelUrl,
+      url: v.url || `/watch?v=${v.id}`,
+      meta: [v.length, ...(v.rest ?? [])].filter(Boolean),
+      progress: progressOf(el.data),
     };
   };
 
   // Watch progress is drawn as a red bar on the row's bottom divider (CSS var --p); finished videos are dimmed.
   const row = (el, v) => h('div', {
-    class: v.progress >= 95 ? 'yt-row yt-done' : 'yt-row', 'data-id': v.id,
+    class: ['yt-row', v.progress >= 95 && 'yt-done', v.playlist && 'yt-playlist'].filter(Boolean).join(' '),
+    'data-id': v.id,
     style: v.progress > 0 && `--p:${Math.round(v.progress)}%`,
   },
     h('div', { class: 'yt-main', onclick: () => openInApp(v.url) },
+      !!v.channel && (v.channelUrl
+        ? h('a', { class: 'yt-channel', href: v.channelUrl, onclick: e => e.stopPropagation() }, v.channel)
+        : h('span', { class: 'yt-channel' }, v.channel)),
       h('div', { class: 'yt-title' }, v.title),
-      h('div', { class: 'yt-meta' },
-        h('span', { class: 'yt-channel' }, v.channel ?? ''),
-        ...v.meta.map(m => h('span', {}, m)))),
+      v.meta.length > 0 && h('div', { class: 'yt-meta' }, ...v.meta.map(m => h('span', {}, m)))),
     !v.playlist && h('button', { class: 'yt-ask', 'aria-label': 'Ask Gemini', onclick: () => ask.open(v) }, icon(ICONS.spark, 'yt-gemini')),
     h('button', {
       class: 'yt-more', 'aria-label': 'More actions',
@@ -396,16 +425,19 @@
     /* Hide YouTube's own card from the first frame, so it never flashes before its row is built. */
     :is(${CARD_SEL}):not(.yt-native) > :not(.yt-row) { display:none !important; }
     ytm-rich-item-renderer:has(.yt-x) { margin:0 !important; padding:0 !important; }
-    .yt-row { display:flex; gap:4px; align-items:center; padding:14px 8px 14px 16px;
-      border-bottom:1px solid var(--yt-line); color:var(--yt-fg); font:14px/1.4 var(--yt-font);
+    .yt-row { display:flex; gap:4px; align-items:center; padding:11px 8px 11px 16px;
+      border-bottom:1px solid var(--yt-line); color:var(--yt-fg); font:14px/1.35 var(--yt-font);
       background:linear-gradient(#f03, #f03) left bottom / var(--p, 0%) 2px no-repeat border-box; }
     .yt-done .yt-main { opacity:.5; }
     .yt-main { flex:1; min-width:0; }
-    .yt-title { font-size:15.5px; font-weight:500; font-variation-settings:'opsz' 18; letter-spacing:-.005em;
+    .yt-channel { display:block; width:fit-content; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+      color:var(--yt-accent); font-size:13px; font-weight:600; line-height:1.3; letter-spacing:.01em; text-decoration:none; margin-bottom:2px; }
+    a.yt-channel:active { opacity:.6; }
+    .yt-playlist .yt-channel { color:var(--yt-mute); font-weight:500; }
+    .yt-title { font-size:15px; font-weight:450; font-variation-settings:'opsz' 18; letter-spacing:-.005em;
       display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-    .yt-meta { color:var(--yt-mute); font-size:12.5px; margin-top:4px; font-stretch:95%; }
+    .yt-meta { color:var(--yt-mute); font-size:12.5px; margin-top:3px; font-stretch:95%; font-variant-numeric:tabular-nums; }
     .yt-meta span + span::before { content:' · '; }
-    .yt-channel { color:var(--yt-fg); font-weight:500; opacity:.8; }
     .yt-row button { flex:none; border:0; background:none; color:var(--yt-mute); padding:0; display:grid; place-items:center; }
     .yt-row .yt-ask { width:44px; height:44px; border-radius:50%; background:var(--yt-surface); }
     .yt-row .yt-ask .yt-icon { width:22px; height:22px; }
