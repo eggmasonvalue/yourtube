@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    yourtube
-// @version      0.3.12
+// @version      0.3.13
 // @description  Text-first YouTube feed with on-demand Gemini "Ask" per video.
 // @author       eggmasonvalue
 // @license      MIT
@@ -102,6 +102,13 @@
     }
     return null;
   };
+  const channelVideosUrl = url => {
+    if (!url) return null;
+    const clean = url.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\/featured$/, '');
+    return /^\/(?:@[^/]+|(?:channel|c|user)\/[^/]+)$/.test(clean) ? `${clean}/videos` : url;
+  };
+  const lengthOf = d => text(d.lengthText)
+    || text(findAll(d.thumbnailOverlays, o => o.thumbnailOverlayTimeStatusRenderer)[0]?.thumbnailOverlayTimeStatusRenderer.text);
   const adapters = {
     'YT-LOCKUP-VIEW-MODEL': d => {
       const playlist = d.contentType === 'LOCKUP_CONTENT_TYPE_PLAYLIST';
@@ -129,22 +136,40 @@
     },
     'YTM-VIDEO-WITH-CONTEXT-RENDERER': d => ({
       id: d.videoId,
-      title: text(d.headline),
-      channel: text(d.shortBylineText),
+      title: text(d.headline ?? d.title),
+      channel: text(d.shortBylineText ?? d.longBylineText),
       channelUrl: channelUrlOf(d.shortBylineText, d.channelThumbnail, d.longBylineText),
       rest: [text(d.shortViewCountText), text(d.publishedTimeText)],
-      length: text(d.lengthText),
+      length: lengthOf(d),
+      noMenu: !d.menu,
     }),
+    'YTM-VIDEO-CARD-RENDERER': d => {
+      const byline = text(d.bylineText);
+      const meta = text(d.metadataText);
+      const channelUrl = channelUrlOf(d.bylineText);
+      const noChannel = !channelUrl && !meta && /\b(views?|watching|ago|streamed|premiered)\b/i.test(byline);
+      return {
+        id: d.videoId,
+        title: text(d.title),
+        channel: noChannel ? '' : byline,
+        channelUrl,
+        rest: (noChannel ? byline : meta).split(/\s*[•·]\s*/),
+        length: lengthOf(d),
+        noMenu: !d.menu,
+      };
+    },
     'YTM-PLAYLIST-VIDEO-RENDERER': d => ({
       id: d.videoId,
       title: text(d.title),
       channel: text(d.shortBylineText),
       channelUrl: channelUrlOf(d.shortBylineText),
-      rest: text(d.videoInfo).split(' • '),
-      length: text(d.lengthText),
+      rest: text(d.videoInfo).split(/\s*[•·]\s*/),
+      length: lengthOf(d),
     }),
   };
-  adapters['YTM-COMPACT-VIDEO-RENDERER'] = adapters['YTM-VIDEO-WITH-CONTEXT-RENDERER'];
+  for (const tag of ['YTM-COMPACT-VIDEO-RENDERER', 'YTM-GRID-VIDEO-RENDERER', 'YTM-CHANNEL-FEATURED-VIDEO-RENDERER']) {
+    adapters[tag] = adapters['YTM-VIDEO-WITH-CONTEXT-RENDERER'];
+  }
   const CARD_SEL = Object.keys(adapters).map(t => t.toLowerCase()).join(',');
 
   // Progress lives in the thumbnail overlays: contentImage (lockups) or thumbnailOverlays (older renderers).
@@ -156,13 +181,13 @@
   const toItem = el => {
     const v = adapters[el.tagName]?.(el.data);
     if (!v?.id || !v.title) return null;
-    const channelUrl = v.channelUrl
+    const rawChannelUrl = v.channelUrl
       ?? el.querySelector('a[href^="/@"], a[href^="/channel/"], a[href^="/c/"], a[href^="/user/"]')?.getAttribute('href')
       ?? null;
     return {
       ...v,
       channel: v.channel || '',
-      channelUrl,
+      channelUrl: channelVideosUrl(rawChannelUrl),
       url: v.url || `/watch?v=${v.id}`,
       meta: [v.length, ...(v.rest ?? [])].filter(Boolean),
       progress: progressOf(el.data),
@@ -182,7 +207,7 @@
       h('div', { class: 'yt-title' }, v.title),
       v.meta.length > 0 && h('div', { class: 'yt-meta' }, ...v.meta.map(m => h('span', {}, m)))),
     !v.playlist && h('button', { class: 'yt-ask', 'aria-label': 'Ask Gemini', onclick: () => ask.open(v) }, icon(ICONS.spark, 'yt-gemini')),
-    h('button', {
+    !v.noMenu && h('button', {
       class: 'yt-more', 'aria-label': 'More actions',
       onclick: () => el.querySelector('button[aria-label*="ction"], button[aria-label*="More"]')?.click(),
     }, icon(ICONS.more)));
@@ -422,12 +447,24 @@
 
     /* text rows */
     .yt-x { margin:0 !important; padding:0 !important; }
+    ytm-compact-video-renderer.yt-x, ytm-video-card-renderer.yt-x { display:block; }
     /* Hide YouTube's own card from the first frame, so it never flashes before its row is built. */
     :is(${CARD_SEL}):not(.yt-native) > :not(.yt-row) { display:none !important; }
     ytm-rich-item-renderer:has(.yt-x) { margin:0 !important; padding:0 !important; }
-    .yt-row { display:flex; gap:4px; align-items:center; padding:11px 8px 11px 16px;
+    .yt-row { display:flex; gap:4px; align-items:center; padding:11px 8px 11px 16px; white-space:normal;
       border-bottom:1px solid var(--yt-line); color:var(--yt-fg); font:14px/1.35 var(--yt-font);
       background:linear-gradient(#f03, #f03) left bottom / var(--p, 0%) 2px no-repeat border-box; }
+    /* Horizontal carousels (e.g. channel Home shelves, Library history) stay scrollable as compact text cards. */
+    .horizontal-card-list-cards:has(> .yt-x) { display:flex !important; align-items:stretch; gap:10px;
+      padding:0 16px 12px; white-space:normal; scroll-snap-type:x proximity; scroll-padding-inline:16px; }
+    .horizontal-card-list-cards > .yt-x { flex:none; width:min(82vw, 310px); scroll-snap-align:start; }
+    .rich-shelf-content.scrollable:has(.yt-x) { gap:10px; padding:4px 16px 12px; }
+    .rich-shelf-content.scrollable > ytm-rich-item-renderer:has(.yt-x),
+    .ytwHorizontalShelfViewModelItems > div:has(> .yt-x) { flex:none; width:min(82vw, 310px) !important; }
+    :is(.rich-shelf-content.scrollable, .ytwHorizontalShelfViewModelItems) .yt-x { height:100%; }
+    :is(.horizontal-card-list-cards, .rich-shelf-content.scrollable, .ytwHorizontalShelfViewModelItems) .yt-row {
+      height:100%; box-sizing:border-box; padding:12px 6px 12px 14px;
+      border:1px solid var(--yt-line); border-radius:14px; overflow:hidden; }
     .yt-done .yt-main { opacity:.5; }
     .yt-main { flex:1; min-width:0; }
     .yt-channel { display:block; width:fit-content; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -506,6 +543,19 @@
   cleanups.push(() => { style.remove(); defs.remove(); });
 
   // ── Wire-up ─────────────────────────────────────────────────────────────────
+  // Safety net: any unadapted /watch link ("Play all", post links, future renderers) still opens in the app.
+  const onWatchClick = e => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = (e.target instanceof Element ? e.target : e.target?.parentElement)?.closest('a[href]');
+    if (!a || a.closest('.yt-row, .yt-sheet')) return;
+    let u;
+    try { u = new URL(a.href, location.origin); } catch { return; }
+    if (u.origin !== location.origin || u.pathname !== '/watch' || !u.searchParams.get('v')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openInApp(u.pathname + u.search);
+  };
+  document.addEventListener('click', onWatchClick, true);
   let queued = false;
   const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(scan); } };
   const scan = () => {
@@ -518,6 +568,7 @@
   observer.observe(document.body, { childList: true, subtree: true });
   addEventListener('scroll', schedule, { passive: true }); // catches recycled cards whose .data changed in place
   cleanups.push(() => {
+    document.removeEventListener('click', onWatchClick, true);
     observer.disconnect();
     removeEventListener('scroll', schedule);
     document.querySelectorAll('.yt-row').forEach(r => r.remove());
