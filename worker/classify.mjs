@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 // Classification: atomic questions for a decision model, and the code that turns answers into decisions.
 // The model answers what is visible at a glance; all reasoning lives here. The owner's topics and lanes come
 // from a private config (personal/topics.mjs), so this file holds only what is the same for everyone.
@@ -94,15 +96,33 @@ export const laneScores = (a, config) =>
 
 export const lanes = (a, config) => Object.entries(laneScores(a, config)).filter(([, p]) => p >= FIRES).map(([l]) => l);
 
-// Keep: the lane with the strongest topic, or Watch Later when nothing fits or it won't keep.
-export const keepTarget = (a, config, { minShelfDays = 60 } = {}) => {
+// Keep: the lane with the strongest topic; null when no lane fits (the page asks me to pick).
+// Shelf life never routes: it only orders the backlog and drives the stale review.
+export const keepTarget = (a, config) => {
   const [best, p] = Object.entries(laneScores(a, config)).sort((x, y) => y[1] - x[1])[0] ?? [];
-  return p >= FIRES && shelfLife(a) >= minShelfDays ? best : 'WL';
+  return p >= FIRES ? best : null;
 };
 
 export const unmatched = (a, config) => lanes(a, config).length === 0;
 
 // ── Input: what the model sees (text only) ─────────────────────────────────────
+// From Data API resources. The reviewed cases were asked with exactly this; changing it changes the answers.
+const squash = (s, n) => (s ?? '').replace(/\s+/g, ' ').slice(0, n);
+export const seconds = iso => {
+  const m = (iso ?? '').match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/) ?? [];
+  return ((+m[1] || 0) * 24 + (+m[2] || 0)) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0);
+};
+export const about = channel => squash(channel?.snippet?.description, 300).split(/(?<=[.!?])\s/)[0].slice(0, 120).trim();
+export const fromApi = (v, about) => {
+  const minutes = Math.round(seconds(v.contentDetails.duration) / 60);
+  return {
+    video: { title: v.snippet.title, channelName: v.snippet.channelTitle, duration: minutes ? `${minutes} min` : '',
+      tags: (v.snippet.tags ?? []).slice(0, 12), description: squash(v.snippet.description, 300) },
+    channel: { about },
+    minutes,
+  };
+};
+
 export const state = (v, channel = {}) => [
   `Title: ${v.title}`,
   `Channel: ${v.channelName}${channel.about ? ` (${channel.about})` : ''}`,
@@ -113,3 +133,6 @@ export const state = (v, channel = {}) => [
 
 // Every question for one video: the owner's topics plus the shared cues.
 export const questions = config => ({ ...config.topics, ...CUES, ...LISTEN });
+
+// A question's signature: answers are cached against it, so rewording a question asks it again.
+export const sig = q => createHash('sha1').update(JSON.stringify(q)).digest('hex').slice(0, 8);

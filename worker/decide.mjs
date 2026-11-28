@@ -9,12 +9,12 @@ const noul = ([y, n]) => ({ ask, yes, no }) => ({
 });
 const toNoul = (qs, keys) => Object.fromEntries(Object.entries(qs).map(([id, q]) => [id, noul(keys)(q)]));
 
-const post = async (url, headers, body) => {
+const post = async (url, headers, body, retries = 6) => {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
     if (res.ok) return res.json();
     const text = await res.text();
-    if (attempt < 6 && (res.status === 429 || res.status >= 500)) {
+    if (attempt < retries && (res.status === 429 || res.status >= 500)) {
       const hinted = +(text.match(/retry in (\d+(?:\.\d+)?)s/i)?.[1] ?? 0); // Gemini says how long to wait
       await new Promise(r => setTimeout(r, Math.max(hinted * 1000 + 500, 2000 * 2 ** attempt)));
       continue;
@@ -25,9 +25,9 @@ const post = async (url, headers, body) => {
 
 export const providers = {
   // Gemini Decisions API (v1beta): up to 1,000 questions per request.
-  gemini: ({ key }) => async (state, questions) => {
+  gemini: ({ key, retries }) => async (state, questions) => {
     const r = await post('https://generativelanguage.googleapis.com/v1beta/decisions', { 'x-goog-api-key': key },
-      { model: 'gemini-decision-1', input: state, questions: toNoul(questions, ['true_description', 'false_description']) });
+      { model: 'gemini-decision-1', input: state, questions: toNoul(questions, ['true_description', 'false_description']) }, retries);
     return { answers: Object.fromEntries(Object.entries(r.answers).map(([k, a]) => [k, a.noul])), tokens: r.usage?.total_input_tokens ?? r.usage?.input_tokens, raw: r.usage };
   },
   // Cloudflare Workers AI, System One format: up to 64 questions per request.

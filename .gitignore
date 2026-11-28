@@ -5,3 +5,7 @@ scratch/
 node_modules/
 # Private config and notes: a separate private repo (yourtube-personal), never part of this one.
 personal/
+
+# Worker local state and secrets.
+.wrangler/
+.dev.vars

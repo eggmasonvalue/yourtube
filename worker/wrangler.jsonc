@@ -1,0 +1,12 @@
+{
+  "name": "yourtube",
+  "main": "index.mjs",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": { "ORIGIN": "https://yourtube.kirubhasshankarkbs.workers.dev" }, // the hub calls ORIGIN/hub
+  "d1_databases": [{ "binding": "DB", "database_name": "yourtube", "database_id": "32ad435d-d466-42ec-8bee-4c93331c84cd" }],
+  // Secrets: YT_KEY (Data API), GEMINI_KEY, TOKEN (shared with the userscript; also signs push notifications). Locally: .dev.vars.
+}

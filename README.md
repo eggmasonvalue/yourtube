@@ -59,6 +59,22 @@ node tools/serve.mjs                                         # serve src/ to the
 
 List the devtools sockets with `adb shell grep -a devtools /proc/net/unix`; `curl localhost:9333/json/version` shows which browser owns one.
 
+### Worker (classifier)
+
+`worker/` is a Cloudflare Worker (free tier) that classifies your subscriptions' uploads ahead of time; see [PRODUCT.md](docs/PRODUCT.md#where-it-runs). It imports your topics and lanes from `personal/topics.mjs` (not in this repo: write your own, same shape as `topics`, `lanes`, `unless`).
+
+```sh
+cd worker
+npx wrangler login
+npx wrangler d1 create yourtube                    # put the id in wrangler.jsonc
+npx wrangler d1 execute yourtube --remote --file schema.sql
+npx wrangler secret put YT_KEY                     # YouTube Data API key
+npx wrangler secret put GEMINI_KEY                 # Gemini API key (Decisions API)
+npx wrangler secret put TOKEN                      # any random string; the userscript sends it
+npx wrangler deploy
+npx wrangler dev --test-scheduled                  # local run; secrets in worker/.dev.vars; trigger the cron at /__scheduled
+```
+
 ## Caveats
 
 - Built on YouTube's **internal, undocumented** web API and page structure. It will break when they change; fixes are usually small.
